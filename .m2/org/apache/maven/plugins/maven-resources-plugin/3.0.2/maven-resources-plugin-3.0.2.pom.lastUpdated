@@ -1,0 +1,6 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Fri Nov 14 13:42:32 CST 2025
+4bdd1321992625222847ff074cbcf47085ce870d@default-nexus-http\://10.16.4.116\:8081/repository/yunding-central/.lastUpdated=1763098952237
+@default-alimaven-http\://maven.aliyun.com/nexus/content/groups/public/.lastUpdated=1763098952248
+http\://10.16.4.116\:8081/repository/yunding-central/.error=Could not transfer artifact org.apache.maven.plugins\:maven-resources-plugin\:pom\:3.0.2 from/to nexus (http\://10.16.4.116\:8081/repository/yunding-central/)\: Operation not permitted
+http\://maven.aliyun.com/nexus/content/groups/public/.error=Could not transfer artifact org.apache.maven.plugins\:maven-resources-plugin\:pom\:3.0.2 from/to alimaven (http\://maven.aliyun.com/nexus/content/groups/public/)\: maven.aliyun.com\: nodename nor servname provided, or not known

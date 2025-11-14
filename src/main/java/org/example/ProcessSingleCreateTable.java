@@ -5,16 +5,40 @@ import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.statement.create.table.ColumnDefinition;
 import net.sf.jsqlparser.statement.create.table.CreateTable;
 import net.sf.jsqlparser.statement.create.table.Index;
+import org.example.pipeline.DatabaseDialect;
+import org.example.pipeline.GaussMySqlDialect;
 
-import javax.xml.stream.events.Characters;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class ProcessSingleCreateTable {
 
-    public static String process(CreateTable createTable) throws JSQLParserException {
+    public static String process(CreateTable createTable, DatabaseDialect dialect) throws JSQLParserException {
+        if (dialect instanceof GaussMySqlDialect) {
+            return processForGauss(createTable);
+        }
+        return processForPostgres(createTable);
+    }
+
+    private static String processForGauss(CreateTable createTable) {
+        if (createTable.getColumnDefinitions() != null) {
+            for (ColumnDefinition columnDefinition : createTable.getColumnDefinitions()) {
+                if ("datetime".equalsIgnoreCase(columnDefinition.getColDataType().getDataType())) {
+                    columnDefinition.getColDataType().setDataType("timestamp");
+                }
+            }
+        }
+        String sql = createTable.toString();
+        if (!sql.trim().endsWith(";")) {
+            sql = sql + ";";
+        }
+        return sql + "\n";
+    }
+
+    private static String processForPostgres(CreateTable createTable) throws JSQLParserException {
         String tableFullyQualifiedName = createTable.getTable().getFullyQualifiedName();
         List<ColumnDefinition> columnDefinitions = createTable.getColumnDefinitions();
 
@@ -23,10 +47,12 @@ public class ProcessSingleCreateTable {
          */
         List<String> tableOptionsStrings = createTable.getTableOptionsStrings();
         String tableCommentSql = null;
-        int commentIndex = tableOptionsStrings.indexOf("COMMENT");
-        if (commentIndex != -1) {
-            tableCommentSql = String.format("COMMENT ON TABLE %s IS %s;", tableFullyQualifiedName,
-                    tableOptionsStrings.get(commentIndex + 2));
+        if (tableOptionsStrings != null) {
+            int commentIndex = tableOptionsStrings.indexOf("COMMENT");
+            if (commentIndex != -1 && commentIndex + 2 < tableOptionsStrings.size()) {
+                tableCommentSql = String.format("COMMENT ON TABLE %s IS %s;", tableFullyQualifiedName,
+                        tableOptionsStrings.get(commentIndex + 2));
+            }
         }
 
         /**
@@ -37,9 +63,7 @@ public class ProcessSingleCreateTable {
         /**
          * 获取主键
          */
-        Index primaryKey = createTable.getIndexes().stream()
-                .filter((Index index) -> Objects.equals("PRIMARY KEY", index.getType()))
-                .findFirst().orElse(null);
+        Index primaryKey = resolvePrimaryKey(createTable);
         if (primaryKey == null) {
             throw new RuntimeException("Primary key not found");
         }
@@ -115,7 +139,7 @@ public class ProcessSingleCreateTable {
 
             // 类型
             String dataType = columnDefinition.getColDataType().getDataType();
-            String postgreDataType = DataTypeMapping.MYSQL_TYPE_TO_POSTGRE_TYPE.get(dataType);
+            String postgreDataType = DataTypeMapping.lookup(dataType);
             if (postgreDataType == null) {
                 System.out.println(columnDefinition.getColDataType().getArgumentsStringList());
                 throw new UnsupportedOperationException("mysql dataType not supported yet. " + dataType);
@@ -143,6 +167,10 @@ public class ProcessSingleCreateTable {
 
             // 处理默认值，将mysql中的默认值转为pg中的默认值，如mysql的CURRENT_TIMESTAMP转为
             List<String> specs = columnDefinition.getColumnSpecs();
+            if (specs == null) {
+                specs = new ArrayList<>();
+                columnDefinition.setColumnSpecs(specs);
+            }
             int indexOfDefaultItem = specs.indexOf("DEFAULT");
             if (indexOfDefaultItem != -1){
                 String mysqlDefault = specs.get(indexOfDefaultItem + 1);
@@ -230,7 +258,7 @@ public class ProcessSingleCreateTable {
                     List<String> columnSpecStrings = columnDefinition.getColumnSpecs();
 
                     int commentIndex = getCommentIndex(columnSpecStrings);
-                    if (commentIndex != -1) {
+                    if (commentIndex != -1 && columnSpecStrings != null) {
                         int commentStringIndex = commentIndex + 1;
                         String commentString = columnSpecStrings.get(commentStringIndex);
 
@@ -246,6 +274,9 @@ public class ProcessSingleCreateTable {
     }
 
     private static int getCommentIndex(List<String> columnSpecStrings) {
+        if (columnSpecStrings == null) {
+            return -1;
+        }
         for (int i = 0; i < columnSpecStrings.size(); i++) {
             if ("COMMENT".equalsIgnoreCase(columnSpecStrings.get(i))) {
                 return i;
@@ -256,5 +287,41 @@ public class ProcessSingleCreateTable {
 
     private static String genCommentSql(String table, String column, String commentValue) {
         return String.format("COMMENT ON COLUMN %s.%s IS %s;", table, column, commentValue);
+    }
+
+    private static Index resolvePrimaryKey(CreateTable createTable) {
+        if (createTable.getIndexes() != null) {
+            Index index = createTable.getIndexes().stream()
+                    .filter((Index idx) -> Objects.equals("PRIMARY KEY", idx.getType()))
+                    .findFirst().orElse(null);
+            if (index != null) {
+                return index;
+            }
+        }
+        List<ColumnDefinition> columnDefinitions = createTable.getColumnDefinitions();
+        if (columnDefinitions == null) {
+            return null;
+        }
+        for (ColumnDefinition columnDefinition : columnDefinitions) {
+            List<String> specs = columnDefinition.getColumnSpecs();
+            if (specs == null) {
+                continue;
+            }
+            for (int i = 0; i < specs.size(); i++) {
+                String token = specs.get(i);
+                if ("PRIMARY".equalsIgnoreCase(token)) {
+                    String next = i + 1 < specs.size() ? specs.get(i + 1) : "";
+                    if ("KEY".equalsIgnoreCase(next)) {
+                        specs.remove(i + 1);
+                        specs.remove(i);
+                        Index index = new Index();
+                        index.setType("PRIMARY KEY");
+                        index.setColumnsNames(Collections.singletonList(columnDefinition.getColumnName()));
+                        return index;
+                    }
+                }
+            }
+        }
+        return null;
     }
 }
