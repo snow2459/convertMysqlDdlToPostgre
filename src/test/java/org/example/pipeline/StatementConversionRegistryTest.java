@@ -32,8 +32,8 @@ public class StatementConversionRegistryTest {
         }
 
         String output = result.asSql();
-        assertTrue("应将 0 转成 FALSE", output.contains("FALSE"));
-        assertTrue("应将 1 转成 TRUE", output.contains("TRUE"));
+        assertTrue("应保留 0", output.contains("(1, 0)"));
+        assertTrue("应保留 1", output.contains("(2, 1)"));
     }
 
     @Test
@@ -131,6 +131,49 @@ public class StatementConversionRegistryTest {
 
         String output = result.asSql();
         assertTrue("应保留 DELETE 语句", output.contains("DELETE FROM sys_menu"));
+    }
+
+    @Test
+    public void shouldKeepTinyintAsInt() throws Exception {
+        String sql = ""
+                + "CREATE TABLE tiny_bool (\n"
+                + "  id int NOT NULL AUTO_INCREMENT,\n"
+                + "  delete_flag tinyint(1) NOT NULL DEFAULT 0,\n"
+                + "  PRIMARY KEY (id)\n"
+                + ");\n";
+
+        Statements statements = CCJSqlParserUtil.parseStatements(sql);
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
+        StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
+        ConversionResult result = new ConversionResult();
+
+        for (Statement statement : statements.getStatements()) {
+            registry.process(statement, context, result);
+        }
+
+        String output = result.asSql();
+        assertTrue("tinyint 应转换为 int", output.contains("delete_flag int"));
+        assertTrue("默认值保持为 0", output.contains("DEFAULT 0"));
+    }
+
+    @Test
+    public void shouldSplitAlterAddColumnComment() throws Exception {
+        String sql = ""
+                + "ALTER TABLE sys_message_receive\n"
+                + "    ADD COLUMN operation_id varchar(100) DEFAULT NULL COMMENT '操作id, 用于异步批量修改时回退操作';\n";
+
+        Statements statements = CCJSqlParserUtil.parseStatements(sql);
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
+        StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
+        ConversionResult result = new ConversionResult();
+
+        for (Statement statement : statements.getStatements()) {
+            registry.process(statement, context, result);
+        }
+
+        String output = result.asSql();
+        assertTrue("ADD COLUMN 中不应包含 COMMENT", !output.contains("ADD COLUMN operation_id varchar(100) DEFAULT NULL COMMENT"));
+        assertTrue("应输出 COMMENT ON COLUMN 语句", output.contains("COMMENT ON COLUMN sys_message_receive.operation_id"));
     }
 
     @Test

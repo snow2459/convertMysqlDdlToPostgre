@@ -138,80 +138,77 @@ public class ProcessSingleCreateTable {
             String columnName = columnDefinition.getColumnName();
 
             // 类型
-            String dataType = columnDefinition.getColDataType().getDataType();
-            String postgreDataType = DataTypeMapping.lookup(dataType);
-            if (postgreDataType == null) {
-                System.out.println(columnDefinition.getColDataType().getArgumentsStringList());
-                throw new UnsupportedOperationException("mysql dataType not supported yet. " + dataType);
-            }
-            // 获取类型后的参数，如varchar(512)中，将获取到512
-            List<String> argumentsStringList = columnDefinition.getColDataType().getArgumentsStringList();
-            String argument = null;
-            if (argumentsStringList != null && argumentsStringList.size() != 0) {
-                if (argumentsStringList.size() == 1) {
-                    argument = argumentsStringList.get(0);
-                } else if (argumentsStringList.size() == 2) {
-                    argument = argumentsStringList.get(0) + "," + argumentsStringList.get(1);
-                }
-            }
-            if (argument != null && argument.trim().length() != 0) {
-                if (postgreDataType.equalsIgnoreCase("bigint")
-                        || postgreDataType.equalsIgnoreCase("smallint")
-                        || postgreDataType.equalsIgnoreCase("int")
-                ) {
-                    postgreDataType = postgreDataType;
-                } else {
-                    postgreDataType = postgreDataType + "(" + argument + ")";
-                }
-            }
-
+            String postgreDataType = resolveColumnType(columnDefinition);
             // 处理默认值，将mysql中的默认值转为pg中的默认值，如mysql的CURRENT_TIMESTAMP转为
             List<String> specs = columnDefinition.getColumnSpecs();
             if (specs == null) {
                 specs = new ArrayList<>();
                 columnDefinition.setColumnSpecs(specs);
             }
-            int indexOfDefaultItem = specs.indexOf("DEFAULT");
-            if (indexOfDefaultItem != -1){
-                String mysqlDefault = specs.get(indexOfDefaultItem + 1);
-                // 是字符串的情况下，内容可能是数字，也可能不是
-                if (mysqlDefault.startsWith("'") && mysqlDefault.endsWith("'")){
-                    mysqlDefault = mysqlDefault.replaceAll("'", "");
-                }else {
-                    // 不是字符串的话，一般就是mysql中的函数，此时要查找对应的pg函数
-                    String postgreDefault = DefaultValueMapping.MYSQL_DEFAULT_TO_POSTGRE_DEFAULT.get(mysqlDefault);
-                    if (postgreDefault == null) {
-                        throw new UnsupportedOperationException("not supported mysql default:" + mysqlDefault);
-                    }
-                    specs.set(indexOfDefaultItem + 1, postgreDefault);
-                }
+            sanitizeColumnSpecs(specs);
+            boolean booleanType = "boolean".equalsIgnoreCase(postgreDataType);
+            ColumnConstraint constraint = extractColumnConstraint(specs);
+
+            List<String> fragments = new ArrayList<>();
+            fragments.add(columnName);
+            fragments.add(postgreDataType);
+            if (constraint.nullability != null) {
+                fragments.add(constraint.nullability);
+            }
+            if (!constraint.remainingSpecs.isBlank()) {
+                fragments.add(constraint.remainingSpecs.trim());
+            }
+            if (constraint.defaultFragment != null) {
+                fragments.add(constraint.defaultFragment);
             }
 
-            String sourceSpec = String.join(" ", specs);
-            String targetSpecAboutNull = null;
-            if (sourceSpec.contains("DEFAULT NULL")) {
-                targetSpecAboutNull = "NULL";
-                sourceSpec = sourceSpec.replaceAll("DEFAULT NULL", "");
-            } else if (sourceSpec.contains("NOT NULL")) {
-                targetSpecAboutNull = "NOT NULL";
-                sourceSpec = sourceSpec.replaceAll("NOT NULL", "");
-            }
-
-            // postgre不支持unsigned
-            sourceSpec = sourceSpec.replaceAll("unsigned", "");
-            // postgre不支持ON UPDATE CURRENT_TIMESTAMP
-            sourceSpec = sourceSpec.replaceAll("ON UPDATE CURRENT_TIMESTAMP", "");
-
-
-            String sql;
-            if (sourceSpec.trim().length() != 0) {
-                sql = String.format("%s %s %s %s", columnName, postgreDataType, targetSpecAboutNull, sourceSpec.trim());
-            } else {
-                sql = String.format("%s %s %s", columnName, postgreDataType, targetSpecAboutNull);
-            }
-            sqlList.add(sql);
+            sqlList.add(renderColumnFragments(fragments));
         }
         return sqlList;
+    }
+
+    public static String renderColumnDefinition(ColumnDefinition columnDefinition) {
+        String postgreDataType = resolveColumnType(columnDefinition);
+        List<String> specs = columnDefinition.getColumnSpecs();
+        if (specs == null) {
+            specs = new ArrayList<>();
+            columnDefinition.setColumnSpecs(specs);
+        }
+        sanitizeColumnSpecs(specs);
+        ColumnConstraint constraint = extractColumnConstraint(specs);
+
+        List<String> fragments = new ArrayList<>();
+        fragments.add(columnDefinition.getColumnName());
+        fragments.add(postgreDataType);
+        if (constraint.nullability != null) {
+            fragments.add(constraint.nullability);
+        }
+        if (!constraint.remainingSpecs.isBlank()) {
+            fragments.add(constraint.remainingSpecs.trim());
+        }
+        if (constraint.defaultFragment != null) {
+            fragments.add(constraint.defaultFragment);
+        }
+        return renderColumnFragments(fragments);
+    }
+
+    public static String extractSingleColumnComment(String tableName, ColumnDefinition columnDefinition) {
+        List<String> specs = columnDefinition.getColumnSpecs();
+        int commentIndex = getCommentIndex(specs);
+        if (commentIndex != -1 && specs != null) {
+            int commentStringIndex = commentIndex + 1;
+            String commentString = specs.get(commentStringIndex);
+            specs.remove(commentStringIndex);
+            specs.remove(commentIndex);
+            return genCommentSql(tableName, columnDefinition.getColumnName(), commentString);
+        }
+        return null;
+    }
+
+    private static String renderColumnFragments(List<String> fragments) {
+        return fragments.stream()
+                .filter(part -> part != null && !part.isBlank())
+                .collect(Collectors.joining(" "));
     }
 
     public static boolean isNumeric(String strNum) {
@@ -242,8 +239,8 @@ public class ProcessSingleCreateTable {
             primaryKeyType = "bigserial";
         } else if (Objects.equals("int", dataType)) {
             primaryKeyType = "serial";
-        } else if (Objects.equals("varchar", dataType)){
-            primaryKeyType = primaryKeyColumnDefinition.getColDataType().toString();
+        } else {
+            primaryKeyType = resolveColumnType(primaryKeyColumnDefinition);
         }
 
         String sql = String.format("%s %s PRIMARY KEY", primaryKeyColumnName, primaryKeyType);
@@ -323,5 +320,131 @@ public class ProcessSingleCreateTable {
             }
         }
         return null;
+    }
+
+    private static void sanitizeColumnSpecs(List<String> specs) {
+        if (specs == null) {
+            return;
+        }
+        for (int i = 0; i < specs.size(); ) {
+            String token = specs.get(i);
+            if ("COLLATE".equalsIgnoreCase(token)) {
+                specs.remove(i);
+                if (i < specs.size()) {
+                    specs.remove(i);
+                }
+                continue;
+            }
+            if ("CHARACTER".equalsIgnoreCase(token)) {
+                specs.remove(i);
+                if (i < specs.size() && "SET".equalsIgnoreCase(specs.get(i))) {
+                    specs.remove(i);
+                }
+                if (i < specs.size()) {
+                    specs.remove(i);
+                }
+                continue;
+            }
+            i++;
+        }
+    }
+
+    private static String resolveColumnType(ColumnDefinition columnDefinition) {
+        String dataType = columnDefinition.getColDataType().getDataType();
+        String postgreDataType = DataTypeMapping.lookup(dataType);
+        if (postgreDataType == null) {
+            System.out.println(columnDefinition.getColDataType().getArgumentsStringList());
+            throw new UnsupportedOperationException("mysql dataType not supported yet. " + dataType);
+        }
+        List<String> argumentsStringList = columnDefinition.getColDataType().getArgumentsStringList();
+        String argument = null;
+        if (argumentsStringList != null && !argumentsStringList.isEmpty()) {
+            if (argumentsStringList.size() == 1) {
+                argument = argumentsStringList.get(0);
+            } else if (argumentsStringList.size() == 2) {
+                argument = argumentsStringList.get(0) + "," + argumentsStringList.get(1);
+            }
+        }
+        if (argument != null && argument.trim().length() != 0) {
+            if (!postgreDataType.equalsIgnoreCase("bigint")
+                    && !postgreDataType.equalsIgnoreCase("smallint")
+                    && !postgreDataType.equalsIgnoreCase("int")
+            ) {
+                postgreDataType = postgreDataType + "(" + argument + ")";
+            }
+        }
+        return postgreDataType;
+    }
+
+    private static ColumnConstraint extractColumnConstraint(List<String> specs) {
+        ColumnConstraint constraint = new ColumnConstraint();
+        if (specs == null) {
+            constraint.remainingSpecs = "";
+            return constraint;
+        }
+        List<String> remaining = new ArrayList<>();
+        for (int i = 0; i < specs.size(); ) {
+            String token = specs.get(i);
+            if ("DEFAULT".equalsIgnoreCase(token)) {
+                String defaultValue = (i + 1) < specs.size() ? specs.get(i + 1) : null;
+                specs.remove(i);
+                if (defaultValue != null) {
+                    specs.remove(i);
+                    String normalized = normalizeDefaultValue(defaultValue);
+                    if ("NULL".equalsIgnoreCase(normalized) && constraint.nullability == null) {
+                        constraint.nullability = "NULL";
+                    } else {
+                        constraint.defaultFragment = "DEFAULT " + normalized;
+                    }
+                }
+                continue;
+            }
+            if ("NOT".equalsIgnoreCase(token) && (i + 1) < specs.size()
+                    && "NULL".equalsIgnoreCase(specs.get(i + 1))) {
+                constraint.nullability = "NOT NULL";
+                specs.remove(i + 1);
+                specs.remove(i);
+                continue;
+            }
+            if ("NULL".equalsIgnoreCase(token)) {
+                constraint.nullability = "NULL";
+                specs.remove(i);
+                continue;
+            }
+            if ("unsigned".equalsIgnoreCase(token)) {
+                specs.remove(i);
+                continue;
+            }
+            if ("ON".equalsIgnoreCase(token) && (i + 2) < specs.size()
+                    && "UPDATE".equalsIgnoreCase(specs.get(i + 1))
+                    && "CURRENT_TIMESTAMP".equalsIgnoreCase(specs.get(i + 2))) {
+                    specs.remove(i + 2);
+                    specs.remove(i + 1);
+                    specs.remove(i);
+                continue;
+            }
+            remaining.add(token);
+            i++;
+        }
+        constraint.remainingSpecs = String.join(" ", remaining);
+        return constraint;
+    }
+
+    private static String normalizeDefaultValue(String mysqlDefault) {
+        if (mysqlDefault == null) {
+            return "NULL";
+        }
+        String mapped = DefaultValueMapping.lookup(mysqlDefault);
+        if (mapped != null) {
+            return mapped;
+        }
+        String trimmed = mysqlDefault.trim();
+        return trimmed;
+    }
+
+    private static class ColumnConstraint {
+        private String nullability;
+        private String defaultFragment;
+        private String remainingSpecs = "";
     }
 }

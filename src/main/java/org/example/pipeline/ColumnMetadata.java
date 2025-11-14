@@ -40,23 +40,6 @@ public class ColumnMetadata {
     }
 
     public boolean isBooleanLike() {
-        String type = sourceDataType == null ? "" : sourceDataType.toLowerCase(Locale.ROOT);
-        if ("boolean".equals(type)) {
-            return true;
-        }
-        if ("tinyint".equals(type)) {
-            return hasSingleLengthArgument();
-        }
-        if ("bit".equals(type)) {
-            return hasSingleLengthArgument();
-        }
         return false;
-    }
-
-    private boolean hasSingleLengthArgument() {
-        if (arguments == null || arguments.isEmpty()) {
-            return true;
-        }
-        return "1".equals(arguments.get(0));
     }
 }

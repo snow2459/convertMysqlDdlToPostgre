@@ -1,1 +1,0 @@
-delete from sys_menu where name='list_test' or name='workflow_test';

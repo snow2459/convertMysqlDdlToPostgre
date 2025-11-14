@@ -46,10 +46,13 @@ public class App {
             return;
         }
         for (String rawSql : statements) {
+            if (rawSql == null || rawSql.trim().isEmpty()) {
+                continue;
+            }
             try {
                 Statement statement = CCJSqlParserUtil.parse(rawSql);
                 registry.process(statement, conversionContext, conversionResult);
-            } catch (JSQLParserException ex) {
+            } catch (Exception ex) {
                 if (SpecialStatementHandler.handle(rawSql, targetDialect, conversionResult)) {
                     continue;
                 }
