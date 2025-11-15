@@ -1,0 +1,50 @@
+-- 1. 添加物理列存储唯一键
+ALTER TABLE analysis_event_daily_aggregation
+    ADD COLUMN unique_key CHAR(32);
+
+-- 2. 创建触发器函数
+CREATE OR REPLACE FUNCTION trg_event_unique_key()
+RETURNS TRIGGER AS $$
+DECLARE
+input_text TEXT;
+BEGIN
+    -- 构建输入字符串
+    input_text :=
+        COALESCE(NEW.user_id, '') ||
+        COALESCE(NEW.user_name, '') ||
+        COALESCE(NEW.user_account, '') ||
+        COALESCE(NEW.org_id, '') ||
+        COALESCE(NEW.org_name, '') ||
+        COALESCE(NEW.org_level::TEXT, '') ||
+        COALESCE(NEW.app_id, '') ||
+        COALESCE(TO_CHAR(NEW.create_date, 'YYYYMMDD'), '') ||
+        COALESCE(NEW.page_url, '') ||
+        COALESCE(NEW.page_title, '') ||
+        COALESCE(NEW.system_code, '') ||
+        COALESCE(NEW.user_ip, '') ||
+        COALESCE(NEW.event_id, '') ||
+        COALESCE(NEW.event_text, '') ||
+        COALESCE(NEW.event_type, '') ||
+        COALESCE(NEW.event_p1, '') ||
+        COALESCE(NEW.event_p2, '') ||
+        COALESCE(NEW.event_p3, '') ||
+        COALESCE(NEW.event_p4, '') ||
+        COALESCE(NEW.event_p5, '') ||
+        COALESCE(NEW.event_p6, '') ||
+        COALESCE(NEW.event_p7, '');
+    -- 计算并设置唯一键
+    NEW.unique_key := LOWER(SUBSTRING(MD5(input_text) FROM 1 FOR 32));
+
+RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 3. 创建触发器
+--  opengauss,EXECUTE FUNCTION 需改为 EXECUTE PROCEDURE
+CREATE TRIGGER trg_event_unique_key
+    BEFORE INSERT OR UPDATE ON analysis_event_daily_aggregation
+                         FOR EACH ROW
+                         EXECUTE FUNCTION trg_event_unique_key();
+-- 创建唯一索引
+CREATE UNIQUE INDEX analysis_event_daily_aggregation_unique_key_idx
+    ON analysis_event_daily_aggregation (unique_key);

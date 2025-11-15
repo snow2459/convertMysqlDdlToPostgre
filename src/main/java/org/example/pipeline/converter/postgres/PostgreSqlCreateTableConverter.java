@@ -34,10 +34,10 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
         }
 
         String createTableFirstLine = String.format("CREATE TABLE %s (", tableFullyQualifiedName);
-        String primaryKeyColumnSql = generatePrimaryKeySql(columnDefinitions, primaryKey, tableFullyQualifiedName);
-        List<String> otherColumnSqlList = generateOtherColumnSql(columnDefinitions, primaryKey, tableFullyQualifiedName);
+        List<String> columnSqlList = renderAllColumns(columnDefinitions, tableFullyQualifiedName);
+        String primaryKeyConstraint = renderPrimaryKeyConstraint(primaryKey);
 
-        String baseSql = generateFullSql(createTableFirstLine, primaryKeyColumnSql, otherColumnSqlList,
+        String baseSql = generateFullSql(createTableFirstLine, columnSqlList, primaryKeyConstraint,
                 tableCommentSql, columnComments);
 
         List<Index> secondaryIndexes = collectSecondaryIndexes(createTable);
@@ -71,6 +71,28 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
         return builder.toString();
     }
 
+    private List<String> renderAllColumns(List<ColumnDefinition> columnDefinitions, String tableName) {
+        List<String> columns = new ArrayList<>();
+        if (columnDefinitions == null) {
+            return columns;
+        }
+        for (ColumnDefinition definition : columnDefinitions) {
+            columns.add(renderColumnDefinition(tableName, definition));
+        }
+        return columns;
+    }
+
+    private String renderPrimaryKeyConstraint(Index primaryKey) {
+        List<String> columns = primaryKey.getColumnsNames();
+        if (columns == null || columns.isEmpty()) {
+            throw new IllegalStateException("Primary key not found");
+        }
+        List<String> cleaned = columns.stream()
+                .map(this::cleanupIdentifier)
+                .collect(Collectors.toList());
+        return "PRIMARY KEY (" + String.join(", ", cleaned) + ")";
+    }
+
     private Index resolvePrimaryKeyFromIndex(CreateTable createTable) {
         if (createTable.getIndexes() == null) {
             return null;
@@ -93,20 +115,17 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
         return null;
     }
 
-    private String generateFullSql(String createTableFirstLine, String primaryKeyColumnSql,
-                                   List<String> otherColumnSqlList,
+    private String generateFullSql(String createTableFirstLine,
+                                   List<String> columnSqlList,
+                                   String primaryKeyConstraint,
                                    String tableCommentSql, List<String> columnComments) {
         StringBuilder builder = new StringBuilder();
         builder.append(createTableFirstLine).append("\n");
-        builder.append("    ").append(primaryKeyColumnSql).append(",\n");
-
-        for (int i = 0; i < otherColumnSqlList.size(); i++) {
-            if (i != otherColumnSqlList.size() - 1) {
-                builder.append("    ").append(otherColumnSqlList.get(i)).append(",\n");
-            } else {
-                builder.append("    ").append(otherColumnSqlList.get(i)).append("\n");
-            }
+        for (int i = 0; i < columnSqlList.size(); i++) {
+            builder.append("    ").append(columnSqlList.get(i));
+            builder.append(",\n");
         }
+        builder.append("    ").append(primaryKeyConstraint).append("\n");
         builder.append(");\n");
 
         if (tableCommentSql != null) {

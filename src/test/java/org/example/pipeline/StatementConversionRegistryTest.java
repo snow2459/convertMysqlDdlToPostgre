@@ -176,6 +176,79 @@ public class StatementConversionRegistryTest {
     }
 
     @Test
+    public void shouldConvertGeneratedUniqueKeyColumn() throws Exception {
+        String sql = ""
+                + "CREATE TABLE analysis_event_daily_aggregation (\n"
+                + "  id bigint,\n"
+                + "  user_id varchar(64),\n"
+                + "  user_name varchar(64),\n"
+                + "  user_account varchar(64),\n"
+                + "  org_id varchar(64),\n"
+                + "  org_name varchar(64),\n"
+                + "  org_level int,\n"
+                + "  app_id varchar(64),\n"
+                + "  create_date date,\n"
+                + "  page_url text,\n"
+                + "  page_title text,\n"
+                + "  system_code varchar(64),\n"
+                + "  user_ip varchar(64),\n"
+                + "  event_id varchar(64),\n"
+                + "  event_text text,\n"
+                + "  event_type varchar(32),\n"
+                + "  event_p1 varchar(64),\n"
+                + "  event_p2 varchar(64),\n"
+                + "  event_p3 varchar(64),\n"
+                + "  event_p4 varchar(64),\n"
+                + "  event_p5 varchar(64),\n"
+                + "  event_p6 varchar(64),\n"
+                + "  event_p7 varchar(64),\n"
+                + "  PRIMARY KEY (id)\n"
+                + ");\n"
+                + "ALTER TABLE analysis_event_daily_aggregation\n"
+                + "    ADD COLUMN unique_key CHAR(32) GENERATED ALWAYS AS (\n"
+                + "        MD5(CONCAT(\n"
+                + "                coalesce(`user_id`, ''),\n"
+                + "                coalesce(`user_name`, ''),\n"
+                + "                coalesce(`user_account`, ''),\n"
+                + "                coalesce(`org_id`, ''),\n"
+                + "                coalesce(`org_name`, ''),\n"
+                + "                coalesce(`org_level`, ''),\n"
+                + "                coalesce(`app_id`, ''),\n"
+                + "                coalesce(`create_date`, ''),\n"
+                + "                coalesce(`page_url`, ''),\n"
+                + "                coalesce(`page_title`, ''),\n"
+                + "                coalesce(`system_code`, ''),\n"
+                + "                coalesce(`user_ip`, ''),\n"
+                + "                coalesce(`event_id`, ''),\n"
+                + "                coalesce(`event_text`, ''),\n"
+                + "                coalesce(`event_type`, ''),\n"
+                + "                coalesce(`event_p1`, ''),\n"
+                + "                coalesce(`event_p2`, ''),\n"
+                + "                coalesce(`event_p3`, ''),\n"
+                + "                coalesce(`event_p4`, ''),\n"
+                + "                coalesce(`event_p5`, ''),\n"
+                + "                coalesce(`event_p6`, ''),\n"
+                + "                coalesce(`event_p7`, '')\n"
+                + "            ))\n"
+                + "        ) STORED;\n";
+
+        Statements statements = CCJSqlParserUtil.parseStatements(sql);
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
+        StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
+        ConversionResult result = new ConversionResult();
+
+        for (Statement statement : statements.getStatements()) {
+            registry.process(statement, context, result);
+        }
+
+        String output = result.asSql();
+        assertTrue("应添加物理列", output.contains("ALTER TABLE analysis_event_daily_aggregation ADD COLUMN unique_key CHAR (32);"));
+        assertTrue("应生成触发器函数", output.contains("CREATE OR REPLACE FUNCTION trg_analysis_event_daily_aggregation_unique_key_fn()"));
+        assertTrue("应创建触发器", output.contains("CREATE TRIGGER trg_analysis_event_daily_aggregation_unique_key"));
+        assertTrue("应创建唯一索引", output.contains("CREATE UNIQUE INDEX analysis_event_daily_aggregation_unique_key_idx"));
+    }
+
+    @Test
     public void shouldSupportAlterTableAddColumn() throws Exception {
         String sql = ""
                 + "ALTER TABLE demo\n"

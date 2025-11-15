@@ -1,7 +1,7 @@
 package org.example.pipeline.special;
 
+import org.example.pipeline.ConversionContext;
 import org.example.pipeline.ConversionResult;
-import org.example.pipeline.dialect.DialectProfile;
 
 import java.util.List;
 
@@ -13,10 +13,13 @@ public final class SpecialStatementHandler {
     private SpecialStatementHandler() {
     }
 
-    public static boolean handle(String rawSql, DialectProfile profile, ConversionResult result) {
-        List<String> converted = AlterAddIndexConverter.tryConvert(rawSql, profile);
+    public static boolean handle(String rawSql, ConversionContext context, ConversionResult result) {
+        List<String> converted = AlterAddIndexConverter.tryConvert(rawSql, context.getDialectProfile());
         if (!converted.isEmpty()) {
             converted.forEach(result::appendStatement);
+            return true;
+        }
+        if (org.example.pipeline.processor.GeneratedUniqueKeyConverter.tryConvertRaw(rawSql, context, result)) {
             return true;
         }
         return false;

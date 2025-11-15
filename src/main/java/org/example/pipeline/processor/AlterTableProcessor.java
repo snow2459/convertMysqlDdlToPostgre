@@ -58,6 +58,9 @@ public class AlterTableProcessor implements StatementProcessor {
                     columnDefinition.setColDataType(columnDataType.getColDataType());
                     columnDefinition.setColumnSpecs(columnDataType.getColumnSpecs());
                     stripAfterClause(columnDefinition);
+                    if (GeneratedUniqueKeyConverter.tryConvert(alter.getTable().getFullyQualifiedName(), columnDefinition, context, result)) {
+                        continue;
+                    }
                     handleAddColumnDefinition(alter.getTable().getFullyQualifiedName(), columnDefinition, context, result);
                 }
             }

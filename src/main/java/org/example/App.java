@@ -58,7 +58,7 @@ public class App {
                 Statement statement = CCJSqlParserUtil.parse(rawSql);
                 registry.process(statement, conversionContext, conversionResult);
             } catch (Exception ex) {
-                if (SpecialStatementHandler.handle(rawSql, targetProfile, conversionResult)) {
+                if (SpecialStatementHandler.handle(rawSql, conversionContext, conversionResult)) {
                     continue;
                 }
                 System.out.println("解析失败，原样输出: " + abbreviate(rawSql) + "，原因: " + ex.getMessage());
