@@ -1,8 +1,10 @@
 package org.example.pipeline.converter.postgres;
 
 import net.sf.jsqlparser.JSQLParserException;
+import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.create.table.ColumnDefinition;
 import net.sf.jsqlparser.statement.create.table.CreateTable;
+import net.sf.jsqlparser.statement.create.table.ForeignKeyIndex;
 import net.sf.jsqlparser.statement.create.table.Index;
 import org.example.pipeline.converter.AbstractCreateTableConverter;
 
@@ -39,15 +41,31 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
                 tableCommentSql, columnComments);
 
         List<Index> secondaryIndexes = collectSecondaryIndexes(createTable);
-        if (secondaryIndexes.isEmpty()) {
+        List<ForeignKeyIndex> foreignKeys = collectForeignKeys(createTable);
+        if (secondaryIndexes.isEmpty() && foreignKeys.isEmpty()) {
             return baseSql;
         }
         StringBuilder builder = new StringBuilder(baseSql);
-        builder.append("\n");
-        for (Index index : secondaryIndexes) {
-            String statement = renderSecondaryIndex(tableFullyQualifiedName, index);
-            if (statement != null) {
-                builder.append(statement).append("\n");
+        boolean appended = false;
+        if (!secondaryIndexes.isEmpty()) {
+            builder.append("\n");
+            for (Index index : secondaryIndexes) {
+                String statement = renderSecondaryIndex(tableFullyQualifiedName, index);
+                if (statement != null) {
+                    builder.append(statement).append("\n");
+                }
+            }
+            appended = true;
+        }
+        if (!foreignKeys.isEmpty()) {
+            if (!appended) {
+                builder.append("\n");
+            }
+            for (ForeignKeyIndex foreignKey : foreignKeys) {
+                String statement = renderForeignKeyConstraint(tableFullyQualifiedName, foreignKey);
+                if (statement != null) {
+                    builder.append(statement).append("\n");
+                }
             }
         }
         return builder.toString();
@@ -113,9 +131,26 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
             if (type != null && "PRIMARY KEY".equalsIgnoreCase(type.trim())) {
                 continue;
             }
+            if (index instanceof ForeignKeyIndex || (type != null && type.equalsIgnoreCase("FOREIGN KEY"))) {
+                continue;
+            }
             secondary.add(index);
         }
         return secondary;
+    }
+
+    private List<ForeignKeyIndex> collectForeignKeys(CreateTable createTable) {
+        List<Index> indexes = createTable.getIndexes();
+        if (indexes == null || indexes.isEmpty()) {
+            return List.of();
+        }
+        List<ForeignKeyIndex> foreignKeys = new ArrayList<>();
+        for (Index index : indexes) {
+            if (index instanceof ForeignKeyIndex) {
+                foreignKeys.add((ForeignKeyIndex) index);
+            }
+        }
+        return foreignKeys;
     }
 
     private String renderSecondaryIndex(String tableName, Index index) {
@@ -125,17 +160,71 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
         }
         boolean unique = index.getType() != null
                 && index.getType().toUpperCase(Locale.ROOT).contains("UNIQUE");
-        String normalizedTable = normalizeIdentifierForIndexName(tableName);
-        String columnSegment = columns.stream()
-                .map(this::normalizeIdentifierForIndexName)
-                .collect(Collectors.joining("_"));
-        String indexName = normalizedTable + "_" + columnSegment + "_idx";
-        String columnsClause = String.join(", ", columns);
+        String indexName = resolveIndexName(tableName, index, columns);
+        String columnsClause = columns.stream()
+                .map(this::cleanupIdentifier)
+                .collect(Collectors.joining(", "));
         return String.format("CREATE %sINDEX %s ON %s (%s);",
                 unique ? "UNIQUE " : "",
                 indexName,
                 tableName,
                 columnsClause);
+    }
+
+    private String resolveIndexName(String tableName, Index index, List<String> columns) {
+        String rawName = index.getName();
+        if (rawName != null && !rawName.isBlank()) {
+            return sanitizeIndexIdentifier(rawName);
+        }
+        String normalizedTable = normalizeIdentifierForIndexName(tableName);
+        String columnSegment = columns.stream()
+                .map(this::normalizeIdentifierForIndexName)
+                .collect(Collectors.joining("_"));
+        return normalizedTable + "_" + columnSegment + "_idx";
+    }
+
+    private String sanitizeIndexIdentifier(String identifier) {
+        if (identifier == null) {
+            return "";
+        }
+        return identifier
+                .replace("`", "")
+                .replace("\"", "")
+                .trim();
+    }
+
+    private String cleanupIdentifier(String identifier) {
+        if (identifier == null) {
+            return "";
+        }
+        return identifier
+                .replace("`", "")
+                .replace("\"", "")
+                .trim();
+    }
+
+    private String renderForeignKeyConstraint(String tableName, ForeignKeyIndex foreignKey) {
+        List<String> columns = foreignKey.getColumnsNames();
+        List<String> referencedColumns = foreignKey.getReferencedColumnNames();
+        Table referencedTable = foreignKey.getTable();
+        if (columns == null || columns.isEmpty() || referencedTable == null
+                || referencedColumns == null || referencedColumns.isEmpty()) {
+            return null;
+        }
+        String constraintName = sanitizeIndexIdentifier(foreignKey.getName());
+        String referencingCols = columns.stream()
+                .map(this::cleanupIdentifier)
+                .collect(Collectors.joining(", "));
+        String referencedCols = referencedColumns.stream()
+                .map(this::cleanupIdentifier)
+                .collect(Collectors.joining(", "));
+        String referencedTableName = cleanupIdentifier(referencedTable.getFullyQualifiedName());
+        return String.format("ALTER TABLE %s%n    ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s (%s);",
+                tableName,
+                constraintName,
+                referencingCols,
+                referencedTableName,
+                referencedCols);
     }
 
     private String normalizeIdentifierForIndexName(String identifier) {

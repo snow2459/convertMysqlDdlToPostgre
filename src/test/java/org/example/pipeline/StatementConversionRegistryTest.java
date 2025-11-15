@@ -34,6 +34,7 @@ public class StatementConversionRegistryTest {
         assertTrue("应将 1 转成 TRUE", output.contains("TRUE"));
     }
 
+
     @Test
     public void shouldConvertDatetimeToTimestampForGauss() throws Exception {
         String sql = ""
@@ -82,6 +83,31 @@ public class StatementConversionRegistryTest {
     }
 
     @Test
+    public void shouldRenderForeignKeyConstraint() throws Exception {
+        String sql = ""
+                + "CREATE TABLE act_ge_bytearray (\n"
+                + "  id varchar(64) NOT NULL,\n"
+                + "  deployment_id varchar(64) DEFAULT NULL,\n"
+                + "  PRIMARY KEY (id),\n"
+                + "  KEY ACT_FK_BYTEARR_DEPL (deployment_id),\n"
+                + "  CONSTRAINT ACT_FK_BYTEARR_DEPL FOREIGN KEY (deployment_id) REFERENCES act_re_deployment (id)\n"
+                + ");\n";
+
+        Statements statements = CCJSqlParserUtil.parseStatements(sql);
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
+        StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
+        ConversionResult result = new ConversionResult();
+
+        for (Statement statement : statements.getStatements()) {
+            registry.process(statement, context, result);
+        }
+
+        String output = result.asSql();
+        assertTrue("应保留外键索引", output.contains("CREATE INDEX ACT_FK_BYTEARR_DEPL ON act_ge_bytearray (deployment_id);"));
+        assertTrue("应生成外键约束", output.contains("ALTER TABLE act_ge_bytearray\n    ADD CONSTRAINT ACT_FK_BYTEARR_DEPL FOREIGN KEY (deployment_id) REFERENCES act_re_deployment (id);"));
+    }
+
+    @Test
     public void shouldGenerateIndexesForPostgres() throws Exception {
         String sql = ""
                 + "CREATE TABLE idx_demo (\n"
@@ -103,8 +129,50 @@ public class StatementConversionRegistryTest {
         }
 
         String output = result.asSql();
-        assertTrue("应生成唯一索引", output.contains("CREATE UNIQUE INDEX idx_demo_code_idx ON idx_demo (code);"));
-        assertTrue("应生成普通索引", output.contains("CREATE INDEX idx_demo_tenant_id_idx ON idx_demo (tenant_id);"));
+        assertTrue("应生成唯一索引并沿用原名", output.contains("CREATE UNIQUE INDEX uk_code ON idx_demo (code);"));
+        assertTrue("应生成普通索引并沿用原名", output.contains("CREATE INDEX idx_tenant ON idx_demo (tenant_id);"));
+    }
+
+    @Test
+    public void shouldWrapBlobInsertWithConvertTo() throws Exception {
+        String sql = ""
+                + "CREATE TABLE blob_demo (\n"
+                + "  id int NOT NULL AUTO_INCREMENT,\n"
+                + "  payload longblob,\n"
+                + "  PRIMARY KEY (id)\n"
+                + ");\n"
+                + "INSERT INTO blob_demo (id, payload) VALUES (1, 'binary-content');\n";
+
+        Statements statements = CCJSqlParserUtil.parseStatements(sql);
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
+        StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
+        ConversionResult result = new ConversionResult();
+
+        for (Statement statement : statements.getStatements()) {
+            registry.process(statement, context, result);
+        }
+
+        String output = result.asSql();
+        assertTrue("BLOB 插入应包装 convert_to", output.contains("convert_to('binary-content', 'UTF8')"));
+    }
+
+    @Test
+    public void shouldRemoveAfterClauseForAlterAddColumn() throws Exception {
+        String sql = ""
+                + "ALTER TABLE bpm_de_model ADD COLUMN app_url varchar(255) NULL after url;\n";
+
+        Statements statements = CCJSqlParserUtil.parseStatements(sql);
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
+        StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
+        ConversionResult result = new ConversionResult();
+
+        for (Statement statement : statements.getStatements()) {
+            registry.process(statement, context, result);
+        }
+
+        String output = result.asSql();
+        assertTrue("ALTER 输出应不含 after 关键字", !output.toLowerCase().contains("after"));
+        assertTrue("应生成标准 ADD COLUMN 语句", output.contains("ADD COLUMN app_url varchar(255) NULL;"));
     }
 
     @Test

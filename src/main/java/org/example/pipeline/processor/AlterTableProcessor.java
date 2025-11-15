@@ -57,6 +57,7 @@ public class AlterTableProcessor implements StatementProcessor {
                     columnDefinition.setColumnName(columnDataType.getColumnName());
                     columnDefinition.setColDataType(columnDataType.getColDataType());
                     columnDefinition.setColumnSpecs(columnDataType.getColumnSpecs());
+                    stripAfterClause(columnDefinition);
                     handleAddColumnDefinition(alter.getTable().getFullyQualifiedName(), columnDefinition, context, result);
                 }
             }
@@ -97,6 +98,23 @@ public class AlterTableProcessor implements StatementProcessor {
 
         if (commentSql != null) {
             result.appendStatement(commentSql);
+        }
+    }
+
+    private void stripAfterClause(ColumnDefinition columnDefinition) {
+        List<String> specs = columnDefinition.getColumnSpecs();
+        if (specs == null) {
+            return;
+        }
+        for (int i = 0; i < specs.size(); i++) {
+            String token = specs.get(i);
+            if ("AFTER".equalsIgnoreCase(token)) {
+                specs.remove(i);
+                if (i < specs.size()) {
+                    specs.remove(i);
+                }
+                break;
+            }
         }
     }
 

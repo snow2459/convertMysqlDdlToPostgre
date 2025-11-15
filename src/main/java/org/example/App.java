@@ -12,6 +12,7 @@ import org.example.pipeline.StatementConversionRegistry;
 import org.example.pipeline.special.SpecialStatementHandler;
 import org.example.pipeline.dialect.DialectProfile;
 import org.example.pipeline.dialect.DatabaseDialect;
+import org.example.pipeline.SqlPreprocessor;
 
 import java.io.File;
 import java.io.IOException;
@@ -48,7 +49,8 @@ public class App {
             System.out.println("未解析到可用 SQL 语句");
             return;
         }
-        for (String rawSql : statements) {
+        for (String originalSql : statements) {
+            String rawSql = SqlPreprocessor.sanitize(originalSql);
             if (rawSql == null || rawSql.trim().isEmpty()) {
                 continue;
             }

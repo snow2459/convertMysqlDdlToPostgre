@@ -156,6 +156,7 @@ public class InsertStatementProcessor implements StatementProcessor {
 
     private String renderExpression(Expression expression, ColumnMetadata columnMetadata,
                                     DatabaseDialect dialect, boolean normalizeBoolean) {
+        boolean binaryColumn = columnMetadata != null && columnMetadata.isBinaryLike();
         if (expression instanceof NullValue) {
             return "NULL";
         }
@@ -166,15 +167,22 @@ public class InsertStatementProcessor implements StatementProcessor {
             }
         }
         if (expression instanceof StringValue) {
-            return quoteString(((StringValue) expression).getValue());
+            if (binaryColumn) {
+                String literal = LiteralSanitizer.removeBinaryPrefix(expression.toString());
+                return wrapBinaryLiteral(literal, true);
+            }
+//            String literal = LiteralSanitizer.removeBinaryPrefix(quoteString(((StringValue) expression).getValue()));
+            String literal = LiteralSanitizer.removeBinaryPrefix(expression.toString());
+            return wrapBinaryLiteral(literal, false);
         }
         if (expression instanceof LongValue) {
-            return String.valueOf(((LongValue) expression).getValue());
+            return wrapBinaryLiteral(String.valueOf(((LongValue) expression).getValue()), binaryColumn);
         }
         if (expression instanceof DoubleValue) {
-            return String.valueOf(((DoubleValue) expression).getValue());
+            return wrapBinaryLiteral(String.valueOf(((DoubleValue) expression).getValue()), binaryColumn);
         }
-        return expression.toString();
+        String raw = LiteralSanitizer.removeBinaryPrefix(expression.toString());
+        return wrapBinaryLiteral(raw, binaryColumn);
     }
 
     private Boolean extractBooleanValue(Expression expression) {
@@ -200,4 +208,20 @@ public class InsertStatementProcessor implements StatementProcessor {
         String escaped = value.replace("'", "''");
         return "'" + escaped + "'";
     }
+
+    private String wrapBinaryLiteral(String literal, boolean binaryColumn) {
+        if (!binaryColumn || literal == null) {
+            return literal;
+        }
+        String trimmed = literal.trim();
+        if (trimmed.equalsIgnoreCase("NULL")) {
+            return literal;
+        }
+        String lower = trimmed.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("convert_to(")) {
+            return literal;
+        }
+        return "convert_to(" + literal + ", 'UTF8')";
+    }
+
 }

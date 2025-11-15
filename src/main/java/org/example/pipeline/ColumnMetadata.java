@@ -2,6 +2,7 @@ package org.example.pipeline;
 
 import net.sf.jsqlparser.statement.create.table.ColumnDefinition;
 import org.example.BooleanColumnRegistry;
+import org.example.DataTypeMapping;
 
 import java.util.List;
 import java.util.Locale;
@@ -52,5 +53,13 @@ public class ColumnMetadata {
         }
         String type = sourceDataType == null ? "" : sourceDataType.toLowerCase(Locale.ROOT);
         return "boolean".equals(type);
+    }
+
+    public boolean isBinaryLike() {
+        if (sourceDataType == null) {
+            return false;
+        }
+        String mapped = DataTypeMapping.lookup(sourceDataType);
+        return mapped != null && mapped.equalsIgnoreCase("bytea");
     }
 }

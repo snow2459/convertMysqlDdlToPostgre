@@ -2,12 +2,15 @@ package org.example.pipeline.processor;
 
 import net.sf.jsqlparser.expression.DoubleValue;
 import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.expression.ExpressionVisitorAdapter;
 import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.StringValue;
 import net.sf.jsqlparser.schema.Column;
+import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.update.Update;
 import net.sf.jsqlparser.statement.update.UpdateSet;
+import org.example.BooleanColumnRegistry;
 import org.example.pipeline.ColumnMetadata;
 import org.example.pipeline.ConversionContext;
 import org.example.pipeline.ConversionResult;
@@ -36,12 +39,14 @@ public class UpdateStatementProcessor implements StatementProcessor {
     @Override
     public void process(Statement statement, ConversionContext context, ConversionResult result) {
         Update update = (Update) statement;
+        normalizeTableAlias(update);
         DatabaseDialect dialect = context.getTargetDialect();
         SchemaMetadata schemaMetadata = context.getSchemaMetadata();
-        Optional<TableMetadata> tableMetadata = schemaMetadata.find(update.getTable().getFullyQualifiedName());
+        String tableName = update.getTable().getFullyQualifiedName();
+        Optional<TableMetadata> tableMetadata = schemaMetadata.find(tableName);
         boolean normalizeBoolean = context.getDialectProfile().supportsBooleanLiteralNormalization();
-        if (tableMetadata.isPresent() && normalizeBoolean) {
-            applyBooleanAssignments(update, tableMetadata.get());
+        if (normalizeBoolean) {
+            applyBooleanAssignments(update, tableMetadata.orElse(null), tableName);
         }
 
         String sql = update.toString();
@@ -59,7 +64,7 @@ public class UpdateStatementProcessor implements StatementProcessor {
         return normalized;
     }
 
-    private void applyBooleanAssignments(Update update, TableMetadata tableMetadata) {
+    private void applyBooleanAssignments(Update update, TableMetadata tableMetadata, String tableName) {
         if (update.getUpdateSets() == null) {
             return;
         }
@@ -71,14 +76,53 @@ public class UpdateStatementProcessor implements StatementProcessor {
             }
             for (int i = 0; i < columns.size() && i < expressions.size(); i++) {
                 Column column = columns.get(i);
-                ColumnMetadata columnMetadata = tableMetadata.getColumn(column.getColumnName()).orElse(null);
-                if (columnMetadata != null && columnMetadata.isBooleanLike()) {
+                ColumnMetadata columnMetadata = tableMetadata == null ? null
+                        : tableMetadata.getColumn(column.getColumnName()).orElse(null);
+                boolean booleanLike = columnMetadata != null
+                        ? columnMetadata.isBooleanLike()
+                        : BooleanColumnRegistry.isBooleanColumn(tableName, column.getColumnName());
+                if (booleanLike) {
                     Boolean boolValue = extractBooleanValue(expressions.get(i));
                     if (boolValue != null) {
                         expressions.set(i, new StringValue(boolValue ? BOOL_TRUE_TOKEN : BOOL_FALSE_TOKEN));
                     }
                 }
             }
+        }
+    }
+
+    private void normalizeTableAlias(Update update) {
+        if (update.getTable() == null || update.getTable().getAlias() == null) {
+            return;
+        }
+        String alias = update.getTable().getAlias().getName();
+        update.getTable().setAlias(null);
+        if (update.getUpdateSets() != null) {
+            for (UpdateSet updateSet : update.getUpdateSets()) {
+                if (updateSet.getColumns() != null) {
+                    for (Column column : updateSet.getColumns()) {
+                        stripColumnAlias(column, alias);
+                    }
+                }
+                if (updateSet.getExpressions() != null) {
+                    for (Expression expression : updateSet.getExpressions()) {
+                        expression.accept(new AliasCleaningVisitor(alias));
+                    }
+                }
+            }
+        }
+        if (update.getWhere() != null) {
+            update.getWhere().accept(new AliasCleaningVisitor(alias));
+        }
+    }
+
+    private void stripColumnAlias(Column column, String alias) {
+        if (column == null || alias == null) {
+            return;
+        }
+        Table table = column.getTable();
+        if (table != null && table.getName() != null && table.getName().equalsIgnoreCase(alias)) {
+            column.setTable(null);
         }
     }
 
@@ -100,5 +144,24 @@ public class UpdateStatementProcessor implements StatementProcessor {
             }
         }
         return null;
+    }
+
+    private static class AliasCleaningVisitor extends ExpressionVisitorAdapter {
+        private final String alias;
+
+        private AliasCleaningVisitor(String alias) {
+            this.alias = alias;
+        }
+
+        @Override
+        public void visit(Column column) {
+            if (alias == null) {
+                return;
+            }
+            Table table = column.getTable();
+            if (table != null && table.getName() != null && table.getName().equalsIgnoreCase(alias)) {
+                column.setTable(null);
+            }
+        }
     }
 }
