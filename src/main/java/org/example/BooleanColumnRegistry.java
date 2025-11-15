@@ -17,8 +17,52 @@ public final class BooleanColumnRegistry {
         // 系统服务
         registerTableColumn("sys_user", "is_force_update_password");
         // 工作流
-        registerTableColumn("act_hi_detail", "INITIAL_");
+        registerTableColumn("act_hi_caseactinst", "required_");
+        registerTableColumn("act_hi_detail", "initial_");
+        registerTableColumn("act_ge_bytearray", "generated_");
+        registerTableColumn("act_re_procdef", "has_start_form_key_");
+        registerTableColumn("act_re_procdef", "startable_");
+        registerTableColumn("bpm_de_model", "status");
+        registerTableColumn("bpm_de_model", "global_mark");
+        registerTableColumn("bpm_de_model", "batch_support");
+        registerTableColumn("bpm_de_model", "application_advice_support");
+        registerTableColumn("bpm_de_model", "applicant_assign_support");
+        registerTableColumn("bpm_event", "global_mark");
+        registerTableColumn("bpm_event", "global_trigger_mark");
+        registerTableColumn("bpm_event", "global_trigger_mark");
+        registerTableColumn("enable", "global_trigger_mark");
         registerTableColumn("bpm_proc_button", "global_mark");
+        registerTableColumn("bpm_proc_button", "custom_mark");
+        registerTableColumn("bpm_proc_button", "message_required");
+        registerTableColumn("bpm_proc_button", "edited");
+        registerTableColumn("bpm_proc_button", "selected");
+        registerTableColumn("bpm_proc_def", "approve_batch");
+        registerTableColumn("bpm_proc_def", "global_mark");
+        registerTableColumn("bpm_proc_def", "enable");
+        registerTableColumn("bpm_proc_def", "batch_support");
+        registerTableColumn("bpm_proc_def", "application_advice_support");
+        registerTableColumn("bpm_proc_def", "applicant_assign_support");
+        registerTableColumn("bpm_re_node", "can_save");
+        registerTableColumn("bpm_re_node", "feedback_rule");
+        registerTableColumn("bpm_re_node", "revoke_rule_next_todo");
+        registerTableColumn("bpm_re_node", "revoke_rule_permit_preemption");
+        registerTableColumn("bpm_re_node", "rejected_permit_direct_send");
+        registerTableColumn("bpm_re_node", "signature_rule_permit_assigned");
+        registerTableColumn("bpm_re_node", "cc_rule_permit_assigned");
+        registerTableColumn("bpm_re_node", "cc_assigned_required");
+        registerTableColumn("bpm_re_node", "cc_assigned_scoped");
+        registerTableColumn("bpm_re_node", "empty_approve_skip_rule");
+        registerTableColumn("bpm_re_node", "same_approve_skip_rule");
+        registerTableColumn("act_ru_case_execution", "required_");
+        registerTableColumn("act_ru_case_sentry_part", "satisfied_");
+        registerTableColumn("act_ru_execution", "is_active_");
+        registerTableColumn("act_ru_execution", "is_concurrent_");
+        registerTableColumn("act_ru_execution", "is_scope_");
+        registerTableColumn("act_ru_execution", "is_event_scope_");
+        registerTableColumn("act_ru_job", "exclusive_");
+        registerTableColumn("act_ru_variable", "is_concurrent_local_");
+        registerTableColumn("bpm_re_node", "multi_reject");
+        registerTableColumn("bpm_re_node", "enable_signature");
 
     }
 
