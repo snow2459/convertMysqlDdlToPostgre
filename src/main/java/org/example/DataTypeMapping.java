@@ -30,6 +30,7 @@ public class DataTypeMapping {
         MYSQL_TYPE_TO_POSTGRE_TYPE.put("longblob", "bytea");
 
         MYSQL_TYPE_TO_POSTGRE_TYPE.put("datetime", "timestamp");
+        MYSQL_TYPE_TO_POSTGRE_TYPE.put("timestamp", "timestamp");
         MYSQL_TYPE_TO_POSTGRE_TYPE.put("date", "date");
         MYSQL_TYPE_TO_POSTGRE_TYPE.put("time", "time");
 

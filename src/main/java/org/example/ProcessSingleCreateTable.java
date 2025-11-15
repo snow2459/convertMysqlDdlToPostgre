@@ -11,6 +11,7 @@ import org.example.pipeline.GaussMySqlDialect;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -76,11 +77,11 @@ public class ProcessSingleCreateTable {
         /**
          * 生成目标sql：主键
          */
-        String primaryKeyColumnSql = generatePrimaryKeySql(columnDefinitions, primaryKey);
+        String primaryKeyColumnSql = generatePrimaryKeySql(columnDefinitions, primaryKey, tableFullyQualifiedName);
         /**
          * 生成目标sql：除了主键之外的其他列
          */
-        List<String> otherColumnSqlList = generateOtherColumnSql(columnDefinitions, primaryKey);
+        List<String> otherColumnSqlList = generateOtherColumnSql(columnDefinitions, primaryKey, tableFullyQualifiedName);
 
 
         String fullSql = generateFullSql(createTableFirstLine, primaryKeyColumnSql, otherColumnSqlList,
@@ -125,7 +126,8 @@ public class ProcessSingleCreateTable {
         return sql;
     }
 
-    private static List<String> generateOtherColumnSql(List<ColumnDefinition> columnDefinitions, Index primaryKey) {
+    private static List<String> generateOtherColumnSql(List<ColumnDefinition> columnDefinitions, Index primaryKey,
+                                                       String tableName) {
         String primaryKeyColumnName = primaryKey.getColumnsNames().get(0);
 
         List<ColumnDefinition> columnDefinitionList = columnDefinitions.stream()
@@ -138,7 +140,7 @@ public class ProcessSingleCreateTable {
             String columnName = columnDefinition.getColumnName();
 
             // 类型
-            String postgreDataType = resolveColumnType(columnDefinition);
+            String postgreDataType = resolveColumnType(columnDefinition, tableName);
             // 处理默认值，将mysql中的默认值转为pg中的默认值，如mysql的CURRENT_TIMESTAMP转为
             List<String> specs = columnDefinition.getColumnSpecs();
             if (specs == null) {
@@ -147,7 +149,7 @@ public class ProcessSingleCreateTable {
             }
             sanitizeColumnSpecs(specs);
             boolean booleanType = "boolean".equalsIgnoreCase(postgreDataType);
-            ColumnConstraint constraint = extractColumnConstraint(specs);
+            ColumnConstraint constraint = extractColumnConstraint(specs, booleanType);
 
             List<String> fragments = new ArrayList<>();
             fragments.add(columnName);
@@ -167,15 +169,16 @@ public class ProcessSingleCreateTable {
         return sqlList;
     }
 
-    public static String renderColumnDefinition(ColumnDefinition columnDefinition) {
-        String postgreDataType = resolveColumnType(columnDefinition);
+    public static String renderColumnDefinition(String tableName, ColumnDefinition columnDefinition) {
+        String postgreDataType = resolveColumnType(columnDefinition, tableName);
         List<String> specs = columnDefinition.getColumnSpecs();
         if (specs == null) {
             specs = new ArrayList<>();
             columnDefinition.setColumnSpecs(specs);
         }
         sanitizeColumnSpecs(specs);
-        ColumnConstraint constraint = extractColumnConstraint(specs);
+        boolean booleanType = "boolean".equalsIgnoreCase(postgreDataType);
+        ColumnConstraint constraint = extractColumnConstraint(specs, booleanType);
 
         List<String> fragments = new ArrayList<>();
         fragments.add(columnDefinition.getColumnName());
@@ -223,7 +226,8 @@ public class ProcessSingleCreateTable {
         return true;
     }
 
-    private static String generatePrimaryKeySql(List<ColumnDefinition> columnDefinitions, Index primaryKey) {
+    private static String generatePrimaryKeySql(List<ColumnDefinition> columnDefinitions, Index primaryKey,
+                                                String tableName) {
         // 仅支持单列主键，不支持多列联合主键
         String primaryKeyColumnName = primaryKey.getColumnsNames().get(0);
 
@@ -240,7 +244,7 @@ public class ProcessSingleCreateTable {
         } else if (Objects.equals("int", dataType)) {
             primaryKeyType = "serial";
         } else {
-            primaryKeyType = resolveColumnType(primaryKeyColumnDefinition);
+            primaryKeyType = resolveColumnType(primaryKeyColumnDefinition, tableName);
         }
 
         String sql = String.format("%s %s PRIMARY KEY", primaryKeyColumnName, primaryKeyType);
@@ -349,8 +353,11 @@ public class ProcessSingleCreateTable {
         }
     }
 
-    private static String resolveColumnType(ColumnDefinition columnDefinition) {
+    private static String resolveColumnType(ColumnDefinition columnDefinition, String tableName) {
         String dataType = columnDefinition.getColDataType().getDataType();
+        if (isBooleanLike(tableName, columnDefinition)) {
+            return "boolean";
+        }
         String postgreDataType = DataTypeMapping.lookup(dataType);
         if (postgreDataType == null) {
             System.out.println(columnDefinition.getColDataType().getArgumentsStringList());
@@ -376,7 +383,18 @@ public class ProcessSingleCreateTable {
         return postgreDataType;
     }
 
-    private static ColumnConstraint extractColumnConstraint(List<String> specs) {
+    private static boolean isBooleanLike(String tableName, ColumnDefinition columnDefinition) {
+        if (BooleanColumnRegistry.isBooleanColumn(tableName, columnDefinition.getColumnName())) {
+            return true;
+        }
+        String dataType = columnDefinition.getColDataType().getDataType();
+        if (dataType == null) {
+            return false;
+        }
+        return "boolean".equalsIgnoreCase(dataType);
+    }
+
+    private static ColumnConstraint extractColumnConstraint(List<String> specs, boolean booleanType) {
         ColumnConstraint constraint = new ColumnConstraint();
         if (specs == null) {
             constraint.remainingSpecs = "";
@@ -390,7 +408,7 @@ public class ProcessSingleCreateTable {
                 specs.remove(i);
                 if (defaultValue != null) {
                     specs.remove(i);
-                    String normalized = normalizeDefaultValue(defaultValue);
+                    String normalized = normalizeDefaultValue(defaultValue, booleanType);
                     if ("NULL".equalsIgnoreCase(normalized) && constraint.nullability == null) {
                         constraint.nullability = "NULL";
                     } else {
@@ -430,16 +448,36 @@ public class ProcessSingleCreateTable {
         return constraint;
     }
 
-    private static String normalizeDefaultValue(String mysqlDefault) {
+    private static String normalizeDefaultValue(String mysqlDefault, boolean booleanType) {
         if (mysqlDefault == null) {
             return "NULL";
         }
         String mapped = DefaultValueMapping.lookup(mysqlDefault);
         if (mapped != null) {
-            return mapped;
+            return adjustBooleanDefault(mapped, booleanType);
         }
         String trimmed = mysqlDefault.trim();
-        return trimmed;
+        return adjustBooleanDefault(trimmed, booleanType);
+    }
+
+    private static String adjustBooleanDefault(String value, boolean booleanType) {
+        if (!booleanType || value == null) {
+            return value;
+        }
+        String trimmed = value.trim();
+        boolean quoted = trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length() >= 2;
+        String unquoted = quoted ? trimmed.substring(1, trimmed.length() - 1) : trimmed;
+        String lower = unquoted.toLowerCase(Locale.ROOT);
+        if ("1".equals(lower) || "true".equals(lower) || "t".equals(lower)) {
+            return "TRUE";
+        }
+        if ("0".equals(lower) || "false".equals(lower) || "f".equals(lower)) {
+            return "FALSE";
+        }
+        if ("null".equals(lower)) {
+            return "NULL";
+        }
+        return quoted ? "'" + unquoted + "'" : value;
     }
 
     private static class ColumnConstraint {

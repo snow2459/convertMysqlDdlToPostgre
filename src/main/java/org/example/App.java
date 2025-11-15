@@ -33,6 +33,7 @@ public class App {
         sqlContent = sqlContent.replaceAll("`","");
 
         String targetDialectName = System.getProperty("target.dialect", "postgresql");
+//        String targetDialectName = System.getProperty("target.dialect", "gauss");
         DatabaseDialect targetDialect = DialectFactory.fromName(targetDialectName);
         System.out.println("当前目标方言: " + targetDialect.getName());
 

@@ -17,10 +17,10 @@ public class StatementConversionRegistryTest {
         String sql = ""
                 + "CREATE TABLE demo (\n"
                 + "  id int NOT NULL AUTO_INCREMENT,\n"
-                + "  flag tinyint(1) NOT NULL,\n"
+                + "  is_force_update_password tinyint(1) NOT NULL,\n"
                 + "  PRIMARY KEY (id)\n"
                 + ");\n"
-                + "INSERT INTO demo (id, flag) VALUES (1, 0), (2, 1);\n";
+                + "INSERT INTO demo (id, is_force_update_password) VALUES (1, 0), (2, 1);\n";
 
         Statements statements = CCJSqlParserUtil.parseStatements(sql);
         ConversionContext context = new ConversionContext(new PostgreSqlDialect());
@@ -32,8 +32,8 @@ public class StatementConversionRegistryTest {
         }
 
         String output = result.asSql();
-        assertTrue("应保留 0", output.contains("(1, 0)"));
-        assertTrue("应保留 1", output.contains("(2, 1)"));
+        assertTrue("应将 0 转成 FALSE", output.contains("FALSE"));
+        assertTrue("应将 1 转成 TRUE", output.contains("TRUE"));
     }
 
     @Test
@@ -134,7 +134,30 @@ public class StatementConversionRegistryTest {
     }
 
     @Test
-    public void shouldKeepTinyintAsInt() throws Exception {
+    public void shouldConvertWhitelistedTinyintToBoolean() throws Exception {
+        String sql = ""
+                + "CREATE TABLE tiny_bool (\n"
+                + "  id int NOT NULL AUTO_INCREMENT,\n"
+                + "  is_force_update_password tinyint(1) NOT NULL DEFAULT 0,\n"
+                + "  PRIMARY KEY (id)\n"
+                + ");\n";
+
+        Statements statements = CCJSqlParserUtil.parseStatements(sql);
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
+        StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
+        ConversionResult result = new ConversionResult();
+
+        for (Statement statement : statements.getStatements()) {
+            registry.process(statement, context, result);
+        }
+
+        String output = result.asSql();
+        assertTrue("白名单 tinyint 应转换为 boolean", output.contains("is_force_update_password boolean"));
+        assertTrue("默认值应转换为 FALSE", output.contains("DEFAULT FALSE"));
+    }
+
+    @Test
+    public void shouldKeepTinyintAsSmallintWhenNotWhitelisted() throws Exception {
         String sql = ""
                 + "CREATE TABLE tiny_bool (\n"
                 + "  id int NOT NULL AUTO_INCREMENT,\n"
@@ -152,8 +175,54 @@ public class StatementConversionRegistryTest {
         }
 
         String output = result.asSql();
-        assertTrue("tinyint 应转换为 int", output.contains("delete_flag int"));
-        assertTrue("默认值保持为 0", output.contains("DEFAULT 0"));
+        assertTrue("非白名单 tinyint 应保留下推到 smallint", output.contains("delete_flag smallint"));
+        assertTrue("默认值应保持数字", output.contains("DEFAULT 0"));
+    }
+
+    @Test
+    public void shouldConvertTableSpecificIntColumnToBoolean() throws Exception {
+        String sql = ""
+                + "CREATE TABLE bpm_proc_button (\n"
+                + "  id int NOT NULL AUTO_INCREMENT,\n"
+                + "  global_mark int NOT NULL DEFAULT 0,\n"
+                + "  PRIMARY KEY (id)\n"
+                + ");\n";
+
+        Statements statements = CCJSqlParserUtil.parseStatements(sql);
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
+        StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
+        ConversionResult result = new ConversionResult();
+
+        for (Statement statement : statements.getStatements()) {
+            registry.process(statement, context, result);
+        }
+
+        String output = result.asSql();
+        assertTrue("表级配置列应转换为 boolean", output.contains("global_mark boolean"));
+        assertTrue("表级配置默认值应转换为 FALSE", output.contains("DEFAULT FALSE"));
+    }
+
+    @Test
+    public void shouldNotConvertSameColumnNameInOtherTable() throws Exception {
+        String sql = ""
+                + "CREATE TABLE other_button (\n"
+                + "  id int NOT NULL AUTO_INCREMENT,\n"
+                + "  global_mark int NOT NULL DEFAULT 0,\n"
+                + "  PRIMARY KEY (id)\n"
+                + ");\n";
+
+        Statements statements = CCJSqlParserUtil.parseStatements(sql);
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
+        StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
+        ConversionResult result = new ConversionResult();
+
+        for (Statement statement : statements.getStatements()) {
+            registry.process(statement, context, result);
+        }
+
+        String output = result.asSql();
+        assertTrue("非指定表的列不应转换", output.contains("global_mark int"));
+        assertTrue("默认值仍保持数字", output.contains("DEFAULT 0"));
     }
 
     @Test
@@ -174,6 +243,76 @@ public class StatementConversionRegistryTest {
         String output = result.asSql();
         assertTrue("ADD COLUMN 中不应包含 COMMENT", !output.contains("ADD COLUMN operation_id varchar(100) DEFAULT NULL COMMENT"));
         assertTrue("应输出 COMMENT ON COLUMN 语句", output.contains("COMMENT ON COLUMN sys_message_receive.operation_id"));
+    }
+
+    @Test
+    public void shouldConvertUpdateBooleanAssignments() throws Exception {
+        String sql = ""
+                + "CREATE TABLE bool_table (\n"
+                + "  id int NOT NULL AUTO_INCREMENT,\n"
+                + "  is_force_update_password tinyint(1) NOT NULL DEFAULT 0,\n"
+                + "  PRIMARY KEY (id)\n"
+                + ");\n"
+                + "UPDATE bool_table SET is_force_update_password = 1 WHERE id = 1;\n";
+
+        Statements statements = CCJSqlParserUtil.parseStatements(sql);
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
+        StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
+        ConversionResult result = new ConversionResult();
+
+        for (Statement statement : statements.getStatements()) {
+            registry.process(statement, context, result);
+        }
+
+        String output = result.asSql();
+        assertTrue("UPDATE 应将 1 转 TRUE", output.contains("SET is_force_update_password = TRUE"));
+    }
+
+    @Test
+    public void shouldConvertInsertValuesForTableSpecificBooleanColumns() throws Exception {
+        String sql = ""
+                + "CREATE TABLE bpm_proc_button (\n"
+                + "  id int NOT NULL AUTO_INCREMENT,\n"
+                + "  global_mark int NOT NULL DEFAULT 0,\n"
+                + "  PRIMARY KEY (id)\n"
+                + ");\n"
+                + "INSERT INTO bpm_proc_button (id, global_mark) VALUES (1, 0), (2, 1);\n";
+
+        Statements statements = CCJSqlParserUtil.parseStatements(sql);
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
+        StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
+        ConversionResult result = new ConversionResult();
+
+        for (Statement statement : statements.getStatements()) {
+            registry.process(statement, context, result);
+        }
+
+        String output = result.asSql();
+        assertTrue("INSERT 应将 0 转 FALSE", output.contains("(1, FALSE)"));
+        assertTrue("INSERT 应将 1 转 TRUE", output.contains("(2, TRUE)"));
+    }
+
+    @Test
+    public void shouldConvertUpdateForTableSpecificBooleanColumns() throws Exception {
+        String sql = ""
+                + "CREATE TABLE bpm_proc_button (\n"
+                + "  id int NOT NULL AUTO_INCREMENT,\n"
+                + "  global_mark int NOT NULL DEFAULT 0,\n"
+                + "  PRIMARY KEY (id)\n"
+                + ");\n"
+                + "UPDATE bpm_proc_button SET global_mark = 1 WHERE id = 1;\n";
+
+        Statements statements = CCJSqlParserUtil.parseStatements(sql);
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
+        StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
+        ConversionResult result = new ConversionResult();
+
+        for (Statement statement : statements.getStatements()) {
+            registry.process(statement, context, result);
+        }
+
+        String output = result.asSql();
+        assertTrue("表级列 UPDATE 应转换为 TRUE", output.contains("SET global_mark = TRUE"));
     }
 
     @Test

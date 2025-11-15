@@ -16,6 +16,7 @@ import org.example.pipeline.ColumnMetadata;
 import org.example.pipeline.ConversionContext;
 import org.example.pipeline.ConversionResult;
 import org.example.pipeline.DatabaseDialect;
+import org.example.pipeline.GaussMySqlDialect;
 import org.example.pipeline.SchemaMetadata;
 import org.example.pipeline.StatementProcessor;
 import org.example.pipeline.TableMetadata;
@@ -23,6 +24,7 @@ import org.example.pipeline.TableMetadata;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -155,6 +157,12 @@ public class InsertStatementProcessor implements StatementProcessor {
         if (expression instanceof NullValue) {
             return "NULL";
         }
+        if (!(dialect instanceof GaussMySqlDialect) && columnMetadata != null && columnMetadata.isBooleanLike()) {
+            Boolean boolValue = extractBooleanValue(expression);
+            if (boolValue != null) {
+                return dialect.formatBoolean(boolValue);
+            }
+        }
         if (expression instanceof StringValue) {
             return quoteString(((StringValue) expression).getValue());
         }
@@ -167,6 +175,25 @@ public class InsertStatementProcessor implements StatementProcessor {
         return expression.toString();
     }
 
+    private Boolean extractBooleanValue(Expression expression) {
+        if (expression instanceof LongValue) {
+            return ((LongValue) expression).getValue() != 0;
+        }
+        if (expression instanceof DoubleValue) {
+            return ((DoubleValue) expression).getValue() != 0;
+        }
+        if (expression instanceof StringValue) {
+            String value = ((StringValue) expression).getValue();
+            String normalized = value.trim().toLowerCase(Locale.ROOT);
+            if ("1".equals(normalized) || "true".equals(normalized)) {
+                return true;
+            }
+            if ("0".equals(normalized) || "false".equals(normalized)) {
+                return false;
+            }
+        }
+        return null;
+    }
     private String quoteString(String value) {
         String escaped = value.replace("'", "''");
         return "'" + escaped + "'";

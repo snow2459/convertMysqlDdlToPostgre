@@ -95,7 +95,7 @@ public class AlterTableProcessor implements StatementProcessor {
         cloned.setColumnSpecs(columnDefinition.getColumnSpecs() != null ? new ArrayList<>(columnDefinition.getColumnSpecs()) : null);
 
         String commentSql = ProcessSingleCreateTable.extractSingleColumnComment(tableName, cloned);
-        String columnSql = ProcessSingleCreateTable.renderColumnDefinition(cloned);
+        String columnSql = ProcessSingleCreateTable.renderColumnDefinition(tableName, cloned);
         String addColumnSql = String.format("ALTER TABLE %s ADD COLUMN %s;", tableName, columnSql);
         result.appendStatement(addColumnSql);
 

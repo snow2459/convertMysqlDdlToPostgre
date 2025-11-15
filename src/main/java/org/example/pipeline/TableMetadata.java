@@ -26,7 +26,7 @@ public class TableMetadata {
         TableMetadata metadata = new TableMetadata(createTable.getTable().getFullyQualifiedName());
         if (createTable.getColumnDefinitions() != null) {
             for (ColumnDefinition definition : createTable.getColumnDefinitions()) {
-                metadata.addColumn(ColumnMetadata.from(definition));
+                metadata.addColumn(ColumnMetadata.from(metadata.getTableName(), definition));
             }
         }
         return metadata;
