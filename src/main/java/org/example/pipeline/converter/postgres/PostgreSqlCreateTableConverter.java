@@ -6,7 +6,10 @@ import net.sf.jsqlparser.statement.create.table.CreateTable;
 import net.sf.jsqlparser.statement.create.table.Index;
 import org.example.pipeline.converter.AbstractCreateTableConverter;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.stream.Collectors;
 
 /**
  * PostgreSQL 方言下的建表转换器。
@@ -32,8 +35,22 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
         String primaryKeyColumnSql = generatePrimaryKeySql(columnDefinitions, primaryKey, tableFullyQualifiedName);
         List<String> otherColumnSqlList = generateOtherColumnSql(columnDefinitions, primaryKey, tableFullyQualifiedName);
 
-        return generateFullSql(createTableFirstLine, primaryKeyColumnSql, otherColumnSqlList,
+        String baseSql = generateFullSql(createTableFirstLine, primaryKeyColumnSql, otherColumnSqlList,
                 tableCommentSql, columnComments);
+
+        List<Index> secondaryIndexes = collectSecondaryIndexes(createTable);
+        if (secondaryIndexes.isEmpty()) {
+            return baseSql;
+        }
+        StringBuilder builder = new StringBuilder(baseSql);
+        builder.append("\n");
+        for (Index index : secondaryIndexes) {
+            String statement = renderSecondaryIndex(tableFullyQualifiedName, index);
+            if (statement != null) {
+                builder.append(statement).append("\n");
+            }
+        }
+        return builder.toString();
     }
 
     private Index resolvePrimaryKeyFromIndex(CreateTable createTable) {
@@ -83,5 +100,53 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
         }
 
         return builder.toString();
+    }
+
+    private List<Index> collectSecondaryIndexes(CreateTable createTable) {
+        List<Index> indexes = createTable.getIndexes();
+        if (indexes == null || indexes.isEmpty()) {
+            return List.of();
+        }
+        List<Index> secondary = new ArrayList<>();
+        for (Index index : indexes) {
+            String type = index.getType();
+            if (type != null && "PRIMARY KEY".equalsIgnoreCase(type.trim())) {
+                continue;
+            }
+            secondary.add(index);
+        }
+        return secondary;
+    }
+
+    private String renderSecondaryIndex(String tableName, Index index) {
+        List<String> columns = index.getColumnsNames();
+        if (columns == null || columns.isEmpty()) {
+            return null;
+        }
+        boolean unique = index.getType() != null
+                && index.getType().toUpperCase(Locale.ROOT).contains("UNIQUE");
+        String normalizedTable = normalizeIdentifierForIndexName(tableName);
+        String columnSegment = columns.stream()
+                .map(this::normalizeIdentifierForIndexName)
+                .collect(Collectors.joining("_"));
+        String indexName = normalizedTable + "_" + columnSegment + "_idx";
+        String columnsClause = String.join(", ", columns);
+        return String.format("CREATE %sINDEX %s ON %s (%s);",
+                unique ? "UNIQUE " : "",
+                indexName,
+                tableName,
+                columnsClause);
+    }
+
+    private String normalizeIdentifierForIndexName(String identifier) {
+        if (identifier == null) {
+            return "";
+        }
+        return identifier
+                .replace("`", "")
+                .replace("\"", "")
+                .replace(".", "_")
+                .trim()
+                .toLowerCase(Locale.ROOT);
     }
 }

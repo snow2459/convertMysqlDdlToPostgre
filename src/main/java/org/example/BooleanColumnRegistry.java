@@ -14,7 +14,12 @@ public final class BooleanColumnRegistry {
     private static final Map<String, Set<String>> TABLE_SPECIFIC_COLUMNS = new HashMap<>();
 
     static {
+        // 系统服务
+        registerTableColumn("sys_user", "is_force_update_password");
+        // 工作流
+        registerTableColumn("act_hi_detail", "INITIAL_");
         registerTableColumn("bpm_proc_button", "global_mark");
+
     }
 
     private BooleanColumnRegistry() {

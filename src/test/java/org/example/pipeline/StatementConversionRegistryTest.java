@@ -82,6 +82,32 @@ public class StatementConversionRegistryTest {
     }
 
     @Test
+    public void shouldGenerateIndexesForPostgres() throws Exception {
+        String sql = ""
+                + "CREATE TABLE idx_demo (\n"
+                + "  id int NOT NULL AUTO_INCREMENT,\n"
+                + "  code varchar(20) NOT NULL,\n"
+                + "  tenant_id int DEFAULT NULL,\n"
+                + "  PRIMARY KEY (id),\n"
+                + "  UNIQUE KEY uk_code (code),\n"
+                + "  KEY idx_tenant (tenant_id)\n"
+                + ");\n";
+
+        Statements statements = CCJSqlParserUtil.parseStatements(sql);
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
+        StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
+        ConversionResult result = new ConversionResult();
+
+        for (Statement statement : statements.getStatements()) {
+            registry.process(statement, context, result);
+        }
+
+        String output = result.asSql();
+        assertTrue("应生成唯一索引", output.contains("CREATE UNIQUE INDEX idx_demo_code_idx ON idx_demo (code);"));
+        assertTrue("应生成普通索引", output.contains("CREATE INDEX idx_demo_tenant_id_idx ON idx_demo (tenant_id);"));
+    }
+
+    @Test
     public void shouldSupportAlterTableAddColumn() throws Exception {
         String sql = ""
                 + "ALTER TABLE demo\n"
