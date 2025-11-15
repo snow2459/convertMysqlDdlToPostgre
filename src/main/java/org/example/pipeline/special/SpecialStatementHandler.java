@@ -14,7 +14,12 @@ public final class SpecialStatementHandler {
     }
 
     public static boolean handle(String rawSql, ConversionContext context, ConversionResult result) {
-        List<String> converted = AlterAddIndexConverter.tryConvert(rawSql, context.getDialectProfile());
+        List<String> converted = RenameTableConverter.tryConvert(rawSql);
+        if (!converted.isEmpty()) {
+            converted.forEach(result::appendStatement);
+            return true;
+        }
+        converted = AlterAddIndexConverter.tryConvert(rawSql, context.getDialectProfile());
         if (!converted.isEmpty()) {
             converted.forEach(result::appendStatement);
             return true;

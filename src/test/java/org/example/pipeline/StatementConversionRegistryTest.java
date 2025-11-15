@@ -4,6 +4,7 @@ import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.Statements;
 import org.example.pipeline.DialectFactory;
+import org.example.pipeline.special.SpecialStatementHandler;
 import org.junit.Test;
 
 import static org.junit.Assert.assertTrue;
@@ -173,6 +174,18 @@ public class StatementConversionRegistryTest {
         String output = result.asSql();
         assertTrue("ALTER 输出应不含 after 关键字", !output.toLowerCase().contains("after"));
         assertTrue("应生成标准 ADD COLUMN 语句", output.contains("ADD COLUMN app_url varchar(255) NULL;"));
+    }
+
+    @Test
+    public void shouldConvertRenameTableStatement() throws Exception {
+        String sql = "RENAME TABLE analysis_view_meta TO uxa_analysis_view_meta;";
+
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
+        ConversionResult result = new ConversionResult();
+
+        boolean handled = SpecialStatementHandler.handle(sql, context, result);
+        assertTrue("应处理 rename table 语句", handled);
+        assertTrue("应输出 ALTER TABLE RENAME", result.asSql().contains("ALTER TABLE analysis_view_meta RENAME TO uxa_analysis_view_meta;"));
     }
 
     @Test

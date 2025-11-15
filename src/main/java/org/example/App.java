@@ -54,13 +54,13 @@ public class App {
             if (rawSql == null || rawSql.trim().isEmpty()) {
                 continue;
             }
+            if (SpecialStatementHandler.handle(rawSql, conversionContext, conversionResult)) {
+                continue;
+            }
             try {
                 Statement statement = CCJSqlParserUtil.parse(rawSql);
                 registry.process(statement, conversionContext, conversionResult);
             } catch (Exception ex) {
-                if (SpecialStatementHandler.handle(rawSql, conversionContext, conversionResult)) {
-                    continue;
-                }
                 System.out.println("解析失败，原样输出: " + abbreviate(rawSql) + "，原因: " + ex.getMessage());
                 conversionResult.appendStatement(rawSql);
             }
