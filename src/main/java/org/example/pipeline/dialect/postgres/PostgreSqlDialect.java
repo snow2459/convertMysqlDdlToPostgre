@@ -1,4 +1,6 @@
-package org.example.pipeline;
+package org.example.pipeline.dialect.postgres;
+
+import org.example.pipeline.dialect.DatabaseDialect;
 
 import java.util.Locale;
 
@@ -23,7 +25,6 @@ public class PostgreSqlDialect implements DatabaseDialect {
             return identifier;
         }
         String normalized = identifier.trim();
-        // 简单判断：包含大写或特殊字符时加双引号，其余保持裸露，方便阅读。
         if (needsQuoting(normalized)) {
             return "\"" + normalized.replace("\"", "\"\"") + "\"";
         }

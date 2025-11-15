@@ -11,11 +11,10 @@ import net.sf.jsqlparser.statement.update.UpdateSet;
 import org.example.pipeline.ColumnMetadata;
 import org.example.pipeline.ConversionContext;
 import org.example.pipeline.ConversionResult;
-import org.example.pipeline.DatabaseDialect;
-import org.example.pipeline.GaussMySqlDialect;
 import org.example.pipeline.SchemaMetadata;
 import org.example.pipeline.StatementProcessor;
 import org.example.pipeline.TableMetadata;
+import org.example.pipeline.dialect.DatabaseDialect;
 
 import java.util.List;
 import java.util.Locale;
@@ -40,24 +39,22 @@ public class UpdateStatementProcessor implements StatementProcessor {
         DatabaseDialect dialect = context.getTargetDialect();
         SchemaMetadata schemaMetadata = context.getSchemaMetadata();
         Optional<TableMetadata> tableMetadata = schemaMetadata.find(update.getTable().getFullyQualifiedName());
-        if (tableMetadata.isPresent() && !(dialect instanceof GaussMySqlDialect)) {
+        boolean normalizeBoolean = context.getDialectProfile().supportsBooleanLiteralNormalization();
+        if (tableMetadata.isPresent() && normalizeBoolean) {
             applyBooleanAssignments(update, tableMetadata.get());
         }
 
         String sql = update.toString();
-        sql = normalize(sql, dialect);
+        sql = normalize(sql, dialect, normalizeBoolean);
         result.appendStatement(sql);
     }
 
-    private String normalize(String sql, DatabaseDialect dialect) {
+    private String normalize(String sql, DatabaseDialect dialect, boolean normalizeBoolean) {
         String normalized = sql.replaceAll("(?i)_utf8mb4'", "'");
-        if (!(dialect instanceof GaussMySqlDialect)) {
+        if (normalizeBoolean) {
             normalized = normalized
                     .replace("'" + BOOL_TRUE_TOKEN + "'", dialect.formatBoolean(true))
                     .replace("'" + BOOL_FALSE_TOKEN + "'", dialect.formatBoolean(false));
-        }
-        if (dialect instanceof GaussMySqlDialect) {
-            return normalized;
         }
         return normalized;
     }

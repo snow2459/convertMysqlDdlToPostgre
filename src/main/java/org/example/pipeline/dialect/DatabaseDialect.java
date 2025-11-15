@@ -1,4 +1,4 @@
-package org.example.pipeline;
+package org.example.pipeline.dialect;
 
 /**
  * 目标数据库方言定义，用于描述标识符、字面量等基础规则。

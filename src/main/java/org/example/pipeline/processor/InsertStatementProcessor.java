@@ -15,11 +15,10 @@ import net.sf.jsqlparser.statement.insert.Insert;
 import org.example.pipeline.ColumnMetadata;
 import org.example.pipeline.ConversionContext;
 import org.example.pipeline.ConversionResult;
-import org.example.pipeline.DatabaseDialect;
-import org.example.pipeline.GaussMySqlDialect;
 import org.example.pipeline.SchemaMetadata;
 import org.example.pipeline.StatementProcessor;
 import org.example.pipeline.TableMetadata;
+import org.example.pipeline.dialect.DatabaseDialect;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -54,7 +53,8 @@ public class InsertStatementProcessor implements StatementProcessor {
             }
 
             DatabaseDialect dialect = context.getTargetDialect();
-            List<String> renderedRows = renderRows(valueRows, columnNames, tableMetadata.orElse(null), dialect);
+            boolean normalizeBoolean = context.getDialectProfile().supportsBooleanLiteralNormalization();
+            List<String> renderedRows = renderRows(valueRows, columnNames, tableMetadata.orElse(null), dialect, normalizeBoolean);
 
             StringBuilder builder = new StringBuilder();
             builder.append("INSERT INTO ")
@@ -130,7 +130,8 @@ public class InsertStatementProcessor implements StatementProcessor {
     private List<String> renderRows(List<List<Expression>> rows,
                                     List<String> columnNames,
                                     TableMetadata tableMetadata,
-                                    DatabaseDialect dialect) {
+                                    DatabaseDialect dialect,
+                                    boolean normalizeBoolean) {
         List<String> rendered = new ArrayList<>();
         for (List<Expression> row : rows) {
             if (!columnNames.isEmpty() && columnNames.size() != row.size()) {
@@ -139,7 +140,7 @@ public class InsertStatementProcessor implements StatementProcessor {
             List<String> valueStrings = new ArrayList<>();
             for (int i = 0; i < row.size(); i++) {
                 ColumnMetadata columnMetadata = resolveColumnMetadata(columnNames, tableMetadata, i);
-                valueStrings.add(renderExpression(row.get(i), columnMetadata, dialect));
+                valueStrings.add(renderExpression(row.get(i), columnMetadata, dialect, normalizeBoolean));
             }
             rendered.add(String.join(", ", valueStrings));
         }
@@ -153,11 +154,12 @@ public class InsertStatementProcessor implements StatementProcessor {
         return tableMetadata.getColumn(columnNames.get(index)).orElse(null);
     }
 
-    private String renderExpression(Expression expression, ColumnMetadata columnMetadata, DatabaseDialect dialect) {
+    private String renderExpression(Expression expression, ColumnMetadata columnMetadata,
+                                    DatabaseDialect dialect, boolean normalizeBoolean) {
         if (expression instanceof NullValue) {
             return "NULL";
         }
-        if (!(dialect instanceof GaussMySqlDialect) && columnMetadata != null && columnMetadata.isBooleanLike()) {
+        if (normalizeBoolean && columnMetadata != null && columnMetadata.isBooleanLike()) {
             Boolean boolValue = extractBooleanValue(expression);
             if (boolValue != null) {
                 return dialect.formatBoolean(boolValue);

@@ -7,10 +7,11 @@ import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.example.pipeline.ConversionContext;
 import org.example.pipeline.ConversionResult;
-import org.example.pipeline.DatabaseDialect;
 import org.example.pipeline.DialectFactory;
 import org.example.pipeline.StatementConversionRegistry;
 import org.example.pipeline.special.SpecialStatementHandler;
+import org.example.pipeline.dialect.DialectProfile;
+import org.example.pipeline.dialect.DatabaseDialect;
 
 import java.io.File;
 import java.io.IOException;
@@ -34,10 +35,11 @@ public class App {
 
         String targetDialectName = System.getProperty("target.dialect", "postgresql");
 //        String targetDialectName = System.getProperty("target.dialect", "gauss");
-        DatabaseDialect targetDialect = DialectFactory.fromName(targetDialectName);
+        DialectProfile targetProfile = DialectFactory.fromName(targetDialectName);
+        DatabaseDialect targetDialect = targetProfile.getDialect();
         System.out.println("当前目标方言: " + targetDialect.getName());
 
-        ConversionContext conversionContext = new ConversionContext(targetDialect);
+        ConversionContext conversionContext = new ConversionContext(targetProfile);
         StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
         ConversionResult conversionResult = new ConversionResult();
 
@@ -54,7 +56,7 @@ public class App {
                 Statement statement = CCJSqlParserUtil.parse(rawSql);
                 registry.process(statement, conversionContext, conversionResult);
             } catch (Exception ex) {
-                if (SpecialStatementHandler.handle(rawSql, targetDialect, conversionResult)) {
+                if (SpecialStatementHandler.handle(rawSql, targetProfile, conversionResult)) {
                     continue;
                 }
                 System.out.println("解析失败，原样输出: " + abbreviate(rawSql) + "，原因: " + ex.getMessage());

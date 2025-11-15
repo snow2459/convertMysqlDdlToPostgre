@@ -4,9 +4,8 @@ import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.delete.Delete;
 import org.example.pipeline.ConversionContext;
 import org.example.pipeline.ConversionResult;
-import org.example.pipeline.DatabaseDialect;
-import org.example.pipeline.GaussMySqlDialect;
 import org.example.pipeline.StatementProcessor;
+import org.example.pipeline.dialect.DatabaseDialect;
 
 /**
  * DELETE 语句处理器。
@@ -27,9 +26,6 @@ public class DeleteStatementProcessor implements StatementProcessor {
 
     private String normalize(String sql, DatabaseDialect dialect) {
         String normalized = sql.replaceAll("(?i)_utf8mb4'", "'");
-        if (dialect instanceof GaussMySqlDialect) {
-            return normalized;
-        }
         return normalized;
     }
 }

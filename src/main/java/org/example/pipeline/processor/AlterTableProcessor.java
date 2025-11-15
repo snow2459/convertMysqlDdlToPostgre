@@ -5,12 +5,10 @@ import net.sf.jsqlparser.statement.alter.Alter;
 import net.sf.jsqlparser.statement.alter.AlterExpression;
 import net.sf.jsqlparser.statement.alter.AlterOperation;
 import net.sf.jsqlparser.statement.create.table.ColumnDefinition;
-import org.example.ProcessSingleCreateTable;
 import org.example.pipeline.ConversionContext;
 import org.example.pipeline.ConversionResult;
-import org.example.pipeline.DatabaseDialect;
-import org.example.pipeline.GaussMySqlDialect;
 import org.example.pipeline.StatementProcessor;
+import org.example.pipeline.converter.CreateTableConverter;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,17 +34,13 @@ public class AlterTableProcessor implements StatementProcessor {
             return;
         }
         String sql = alter.toString();
-        sql = normalize(sql, context.getTargetDialect());
+        sql = normalize(sql);
         result.appendStatement(sql);
     }
 
-    private String normalize(String sql, DatabaseDialect dialect) {
+    private String normalize(String sql) {
         String normalized = sql.replaceAll("(?i)_utf8mb4'", "'");
         normalized = normalized.replaceAll("(?i)\\bdatetime\\b", "timestamp");
-        if (dialect instanceof GaussMySqlDialect) {
-            // Gauss 仅需处理 datetime -> timestamp，保持其余 MySQL 语法
-            return normalized;
-        }
         return normalized;
     }
 
@@ -63,7 +57,7 @@ public class AlterTableProcessor implements StatementProcessor {
                     columnDefinition.setColumnName(columnDataType.getColumnName());
                     columnDefinition.setColDataType(columnDataType.getColDataType());
                     columnDefinition.setColumnSpecs(columnDataType.getColumnSpecs());
-                    handleAddColumnDefinition(alter.getTable().getFullyQualifiedName(), columnDefinition, result);
+                    handleAddColumnDefinition(alter.getTable().getFullyQualifiedName(), columnDefinition, context, result);
                 }
             }
         }
@@ -71,7 +65,7 @@ public class AlterTableProcessor implements StatementProcessor {
     }
 
     private boolean processIndexAdditions(Alter alter, ConversionContext context, ConversionResult result) {
-        if (context.getTargetDialect() instanceof GaussMySqlDialect) {
+        if (!context.getDialectProfile().shouldExtractIndexesFromAlter()) {
             return false;
         }
         if (alter.getAlterExpressions() == null) {
@@ -88,14 +82,16 @@ public class AlterTableProcessor implements StatementProcessor {
         return handled;
     }
 
-    private void handleAddColumnDefinition(String tableName, ColumnDefinition columnDefinition, ConversionResult result) {
+    private void handleAddColumnDefinition(String tableName, ColumnDefinition columnDefinition,
+                                           ConversionContext context, ConversionResult result) {
         ColumnDefinition cloned = new ColumnDefinition();
         cloned.setColumnName(columnDefinition.getColumnName());
         cloned.setColDataType(columnDefinition.getColDataType());
         cloned.setColumnSpecs(columnDefinition.getColumnSpecs() != null ? new ArrayList<>(columnDefinition.getColumnSpecs()) : null);
 
-        String commentSql = ProcessSingleCreateTable.extractSingleColumnComment(tableName, cloned);
-        String columnSql = ProcessSingleCreateTable.renderColumnDefinition(tableName, cloned);
+        CreateTableConverter converter = context.getDialectProfile().getCreateTableConverter();
+        String commentSql = converter.extractSingleColumnComment(tableName, cloned);
+        String columnSql = converter.renderColumnDefinition(tableName, cloned);
         String addColumnSql = String.format("ALTER TABLE %s ADD COLUMN %s;", tableName, columnSql);
         result.appendStatement(addColumnSql);
 

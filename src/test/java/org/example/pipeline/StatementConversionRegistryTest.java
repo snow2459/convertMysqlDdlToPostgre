@@ -4,8 +4,6 @@ import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.Statements;
 import org.example.pipeline.DialectFactory;
-import org.example.pipeline.GaussMySqlDialect;
-import org.example.pipeline.PostgreSqlDialect;
 import org.junit.Test;
 
 import static org.junit.Assert.assertTrue;
@@ -23,7 +21,7 @@ public class StatementConversionRegistryTest {
                 + "INSERT INTO demo (id, is_force_update_password) VALUES (1, 0), (2, 1);\n";
 
         Statements statements = CCJSqlParserUtil.parseStatements(sql);
-        ConversionContext context = new ConversionContext(new PostgreSqlDialect());
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("postgresql"));
         StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
         ConversionResult result = new ConversionResult();
 
@@ -46,7 +44,7 @@ public class StatementConversionRegistryTest {
                 + ");\n";
 
         Statements statements = CCJSqlParserUtil.parseStatements(sql);
-        ConversionContext context = new ConversionContext(new GaussMySqlDialect());
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("gauss"));
         StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
         ConversionResult result = new ConversionResult();
 
@@ -57,6 +55,30 @@ public class StatementConversionRegistryTest {
         String output = result.asSql();
         assertTrue("Gauss 应保持 AUTO_INCREMENT 语法", output.contains("AUTO_INCREMENT"));
         assertTrue("Gauss 应把 datetime 改为 timestamp", output.contains("timestamp"));
+    }
+
+    @Test
+    public void shouldKeepLineBreaksForGauss() throws Exception {
+        String sql = ""
+                + "CREATE TABLE demo_gauss (\n"
+                + "  id int NOT NULL AUTO_INCREMENT,\n"
+                + "  created_at datetime DEFAULT NULL,\n"
+                + "  PRIMARY KEY (id)\n"
+                + ");\n";
+
+        Statements statements = CCJSqlParserUtil.parseStatements(sql);
+        ConversionContext context = new ConversionContext(DialectFactory.fromName("gauss"));
+        StatementConversionRegistry registry = StatementConversionRegistry.defaultRegistry();
+        ConversionResult result = new ConversionResult();
+
+        for (Statement statement : statements.getStatements()) {
+            registry.process(statement, context, result);
+        }
+
+        String output = result.asSql();
+        assertTrue("Gauss 建表首行应带换行缩进", output.contains("CREATE TABLE demo_gauss (\n    id int"));
+        assertTrue("Gauss 建表列之间应换行", output.contains(",\n    created_at timestamp"));
+        assertTrue("Gauss 建表结尾应独立换行", output.contains("\n);\n"));
     }
 
     @Test

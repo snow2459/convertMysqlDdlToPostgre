@@ -1,7 +1,6 @@
 package org.example.pipeline.special;
 
-import org.example.pipeline.DatabaseDialect;
-import org.example.pipeline.GaussMySqlDialect;
+import org.example.pipeline.dialect.DialectProfile;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -18,12 +17,12 @@ final class AlterAddIndexConverter {
     private AlterAddIndexConverter() {
     }
 
-    static List<String> tryConvert(String rawSql, DatabaseDialect dialect) {
+    static List<String> tryConvert(String rawSql, DialectProfile profile) {
         ParsedAlterAddIndex parsed = parse(rawSql);
         if (parsed == null) {
             return Collections.emptyList();
         }
-        if (dialect instanceof GaussMySqlDialect) {
+        if (!profile.shouldExtractIndexesFromAlter()) {
             return List.of(parsed.toAlterStatement());
         }
         return parsed.toCreateIndexStatements();
