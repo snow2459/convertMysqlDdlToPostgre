@@ -14,10 +14,19 @@ import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
- * PostgreSQL 方言下的建表转换器。
+ * PostgreSQL 方言下的建表转换器：负责解析列、主键、注释、索引/外键等信息并渲染成多条目标 SQL。
  */
 public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter {
 
+    /**
+     * 转换流程：
+     * <ol>
+     *     <li>抽取表/列注释并从 AST 中剥离 COMMENT 子句。</li>
+     *     <li>定位 PRIMARY KEY，渲染列定义与主键约束形成基础 CREATE TABLE 语句。</li>
+     *     <li>追加 COMMENT ON TABLE / COLUMN，让注释语义清晰。</li>
+     *     <li>解析剩余的二级索引、外键索引并分别输出 CREATE INDEX / ALTER TABLE ADD CONSTRAINT。</li>
+     * </ol>
+     */
     @Override
     public String convert(CreateTable createTable) throws JSQLParserException {
         String tableFullyQualifiedName = createTable.getTable().getFullyQualifiedName();
@@ -71,6 +80,9 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
         return builder.toString();
     }
 
+    /**
+     * 渲染所有列定义，保持建表语句中的顺序。
+     */
     private List<String> renderAllColumns(List<ColumnDefinition> columnDefinitions, String tableName) {
         List<String> columns = new ArrayList<>();
         if (columnDefinitions == null) {
@@ -82,6 +94,9 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
         return columns;
     }
 
+    /**
+     * 将主键列列表拼接成 PRIMARY KEY (...) 约束，并执行一次标识符清理。
+     */
     private String renderPrimaryKeyConstraint(Index primaryKey) {
         List<String> columns = primaryKey.getColumnsNames();
         if (columns == null || columns.isEmpty()) {
@@ -103,6 +118,9 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
                 .orElse(null);
     }
 
+    /**
+     * MySQL 语法中 COMMENT='表注释' 需要拆成 COMMENT ON TABLE 语句，方便 PostgreSQL 识别。
+     */
     private String extractTableComment(String tableName, List<String> tableOptionsStrings) {
         if (tableOptionsStrings == null) {
             return null;
@@ -115,6 +133,9 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
         return null;
     }
 
+    /**
+     * 组合整张表的所有 SQL：CREATE TABLE 主体 + COMMENT + 列注释。
+     */
     private String generateFullSql(String createTableFirstLine,
                                    List<String> columnSqlList,
                                    String primaryKeyConstraint,
@@ -139,6 +160,9 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
         return builder.toString();
     }
 
+    /**
+     * 过滤掉主键/外键，仅保留需要单独创建的普通索引。
+     */
     private List<Index> collectSecondaryIndexes(CreateTable createTable) {
         List<Index> indexes = createTable.getIndexes();
         if (indexes == null || indexes.isEmpty()) {
@@ -158,6 +182,9 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
         return secondary;
     }
 
+    /**
+     * 收集外键信息，后续统一输出 ALTER TABLE ... ADD CONSTRAINT。
+     */
     private List<ForeignKeyIndex> collectForeignKeys(CreateTable createTable) {
         List<Index> indexes = createTable.getIndexes();
         if (indexes == null || indexes.isEmpty()) {
@@ -172,6 +199,9 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
         return foreignKeys;
     }
 
+    /**
+     * 渲染普通/唯一索引的 CREATE INDEX 语句，同时自动生成缺失的索引名。
+     */
     private String renderSecondaryIndex(String tableName, Index index) {
         List<String> columns = index.getColumnsNames();
         if (columns == null || columns.isEmpty()) {
@@ -222,6 +252,9 @@ public class PostgreSqlCreateTableConverter extends AbstractCreateTableConverter
                 .trim();
     }
 
+    /**
+     * 将 MySQL 外键索引转化为 PostgreSQL 的 ALTER TABLE ADD CONSTRAINT 语法，包含引用列与表名清理。
+     */
     private String renderForeignKeyConstraint(String tableName, ForeignKeyIndex foreignKey) {
         List<String> columns = foreignKey.getColumnsNames();
         List<String> referencedColumns = foreignKey.getReferencedColumnNames();

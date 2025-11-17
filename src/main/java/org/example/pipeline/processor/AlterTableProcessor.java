@@ -24,6 +24,9 @@ public class AlterTableProcessor implements StatementProcessor {
         return statement instanceof Alter;
     }
 
+    /**
+     * 主流程：优先拆解 ADD COLUMN / ADD INDEX，若都未命中则简单替换部分字面量后将原 SQL 透传。
+     */
     @Override
     public void process(Statement statement, ConversionContext context, ConversionResult result) {
         Alter alter = (Alter) statement;
@@ -38,12 +41,18 @@ public class AlterTableProcessor implements StatementProcessor {
         result.appendStatement(sql);
     }
 
+    /**
+     * 对常见的 MySQL 语法糖（_utf8mb4/datetime）做轻量替换，减少 PostgreSQL 无法识别的关键字。
+     */
     private String normalize(String sql) {
         String normalized = sql.replaceAll("(?i)_utf8mb4'", "'");
         normalized = normalized.replaceAll("(?i)\\bdatetime\\b", "timestamp");
         return normalized;
     }
 
+    /**
+     * 拆解 ALTER ... ADD COLUMN 语句：将每个 ColumnDataType 转换为 ALTER TABLE ADD COLUMN + COMMENT。
+     */
     private boolean processColumnAdditions(Alter alter, ConversionContext context, ConversionResult result) {
         if (alter.getAlterExpressions() == null || alter.getAlterExpressions().isEmpty()) {
             return false;
@@ -68,6 +77,9 @@ public class AlterTableProcessor implements StatementProcessor {
         return handled;
     }
 
+    /**
+     * 按需从 ALTER 中抽取 ADD INDEX/ADD KEY，输出为独立的 CREATE INDEX 语句以保持语义一致。
+     */
     private boolean processIndexAdditions(Alter alter, ConversionContext context, ConversionResult result) {
         if (!context.getDialectProfile().shouldExtractIndexesFromAlter()) {
             return false;
@@ -86,6 +98,9 @@ public class AlterTableProcessor implements StatementProcessor {
         return handled;
     }
 
+    /**
+     * 对单个新增列执行渲染：克隆列信息、使用 CreateTableConverter 输出最终 SQL，并附带 COMMENT 语句。
+     */
     private void handleAddColumnDefinition(String tableName, ColumnDefinition columnDefinition,
                                            ConversionContext context, ConversionResult result) {
         ColumnDefinition cloned = new ColumnDefinition();
@@ -104,6 +119,9 @@ public class AlterTableProcessor implements StatementProcessor {
         }
     }
 
+    /**
+     * PostgreSQL 不支持 AFTER 子句，提前在列 specs 中移除该信息。
+     */
     private void stripAfterClause(ColumnDefinition columnDefinition) {
         List<String> specs = columnDefinition.getColumnSpecs();
         if (specs == null) {
@@ -121,6 +139,9 @@ public class AlterTableProcessor implements StatementProcessor {
         }
     }
 
+    /**
+     * 渲染 CREATE INDEX 语句，若索引名称缺失则基于表名和系统 identity 填充占位名。
+     */
     private String renderCreateIndex(String tableName, AlterExpression expression) {
         var index = expression.getIndex();
         String indexName = index.getName();

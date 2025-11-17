@@ -17,6 +17,9 @@ import java.util.stream.Collectors;
  */
 public abstract class AbstractCreateTableConverter implements CreateTableConverter {
 
+    /**
+     * 统一封装列定义渲染：复制 AST，规整列属性、类型、默认值与约束，最终拼接出可直接写入 SQL 的单列片段。
+     */
     @Override
     public String renderColumnDefinition(String tableName, ColumnDefinition columnDefinition) {
         ColumnDefinition working = cloneColumnDefinition(columnDefinition);
@@ -45,6 +48,9 @@ public abstract class AbstractCreateTableConverter implements CreateTableConvert
         return renderColumnFragments(fragments);
     }
 
+    /**
+     * 剥离 ColumnDefinition 内的 COMMENT 片段并转换成单独的 COMMENT ON COLUMN 语句，避免遗留方言差异。
+     */
     @Override
     public String extractSingleColumnComment(String tableName, ColumnDefinition columnDefinition) {
         List<String> specs = columnDefinition.getColumnSpecs();
@@ -59,6 +65,9 @@ public abstract class AbstractCreateTableConverter implements CreateTableConvert
         return null;
     }
 
+    /**
+     * 遍历建表列定义，将 MySQL COMMENT 子句转换成 PostgreSQL COMMENT 语句列表，并从原 specs 中删除对应 token。
+     */
     protected List<String> extractColumnCommentSql(String tableFullyQualifiedName,
                                                    List<ColumnDefinition> columnDefinitions) {
         List<String> columnComments = new ArrayList<>();
@@ -84,6 +93,9 @@ public abstract class AbstractCreateTableConverter implements CreateTableConvert
         return columnComments;
     }
 
+    /**
+     * 优先通过外部 extractor 获取主键，若失败则扫描列内 PRIMARY KEY 声明并构造临时 Index 对象。
+     */
     protected Index resolvePrimaryKey(List<ColumnDefinition> columnDefinitions, CreateTablePrimaryKeyExtractor extractor) {
         if (extractor != null) {
             Index idx = extractor.tryResolve();
@@ -193,6 +205,9 @@ public abstract class AbstractCreateTableConverter implements CreateTableConvert
         return sqlList;
     }
 
+    /**
+     * 清理 MySQL 专属的列属性（如 COLLATE/CHARACTER SET），防止不兼容的语法传递到目标 DDL。
+     */
     protected void sanitizeColumnSpecs(List<String> specs) {
         if (specs == null) {
             return;
@@ -220,6 +235,9 @@ public abstract class AbstractCreateTableConverter implements CreateTableConvert
         }
     }
 
+    /**
+     * 结合 BooleanColumnRegistry 与 DataTypeMapping 将 MySQL 数据类型映射为目标类型，必要时保留长度或精度定义。
+     */
     protected String resolveColumnType(ColumnDefinition columnDefinition, String tableName) {
         String dataType = columnDefinition.getColDataType().getDataType();
         if (isBooleanLike(tableName, columnDefinition)) {
@@ -259,6 +277,9 @@ public abstract class AbstractCreateTableConverter implements CreateTableConvert
         return "boolean".equalsIgnoreCase(dataType);
     }
 
+    /**
+     * 将 DEFAULT/NULL/NOT NULL/ON UPDATE/UNSIGNED 等关键信息结构化，便于渲染时按需组合，同时返回剩余未识别的 token。
+     */
     protected ColumnConstraint extractColumnConstraint(List<String> specs, boolean booleanType) {
         ColumnConstraint constraint = new ColumnConstraint();
         if (specs == null) {
@@ -313,6 +334,9 @@ public abstract class AbstractCreateTableConverter implements CreateTableConvert
         return constraint;
     }
 
+    /**
+     * 默认值正则化：优先查询映射表，不存在则按原始值处理，再根据布尔类型做 TRUE/FALSE 校正。
+     */
     protected String normalizeDefaultValue(String mysqlDefault, boolean booleanType) {
         if (mysqlDefault == null) {
             return "NULL";
@@ -325,6 +349,9 @@ public abstract class AbstractCreateTableConverter implements CreateTableConvert
         return adjustBooleanDefault(trimmed, booleanType);
     }
 
+    /**
+     * 针对布尔列的默认值做兜底转换：兼容 0/1、't'/'f' 等写法并考虑是否带引号。
+     */
     private String adjustBooleanDefault(String value, boolean booleanType) {
         if (!booleanType || value == null) {
             return value;
@@ -345,6 +372,9 @@ public abstract class AbstractCreateTableConverter implements CreateTableConvert
         return quoted ? "'" + unquoted + "'" : value;
     }
 
+    /**
+     * 承载单列的可空性、默认值与剩余 specs，方便渲染阶段一次性拼接。
+     */
     protected static class ColumnConstraint {
         private String nullability;
         private String defaultFragment;

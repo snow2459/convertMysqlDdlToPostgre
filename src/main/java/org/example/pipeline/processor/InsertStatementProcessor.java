@@ -37,6 +37,10 @@ public class InsertStatementProcessor implements StatementProcessor {
         return statement instanceof Insert;
     }
 
+    /**
+     * 负责将 INSERT AST 转换为目标方言的 INSERT 语句：解析列清单、处理多行 VALUES，
+     * 并结合方言/元数据完成布尔与 bytea 字面量的归一化。
+     */
     @Override
     public void process(Statement statement, ConversionContext context, ConversionResult result) {
         Insert insert = (Insert) statement;
@@ -73,6 +77,9 @@ public class InsertStatementProcessor implements StatementProcessor {
         }
     }
 
+    /**
+     * 获取 INSERT 使用的列名，若语句未显式给出则依赖 TableMetadata 的声明顺序。
+     */
     private List<String> resolveColumnNames(Insert insert, Optional<TableMetadata> tableMetadata) {
         if (insert.getColumns() != null && !insert.getColumns().isEmpty()) {
             return insert.getColumns().stream()
@@ -90,6 +97,9 @@ public class InsertStatementProcessor implements StatementProcessor {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 将 ItemsList 拆解为二维表达式数组，覆盖 ExpressionList、MultiExpressionList 与 RowConstructor。
+     */
     private List<List<Expression>> extractValueRows(ItemsList itemsList) {
         if (itemsList == null) {
             return Collections.emptyList();
@@ -115,6 +125,9 @@ public class InsertStatementProcessor implements StatementProcessor {
         return rows;
     }
 
+    /**
+     * 判断 ExpressionList 是否全部由 RowConstructor 构成，从而区分 INSERT INTO t VALUES ROW(...) 的情况。
+     */
     private boolean containsRowConstructors(ExpressionList expressionList) {
         if (expressionList.getExpressions() == null) {
             return false;
@@ -127,6 +140,9 @@ public class InsertStatementProcessor implements StatementProcessor {
         return true;
     }
 
+    /**
+     * 渲染每一行的字面量，包含列数量校验、布尔/二进制列的细节处理，并最终拼接成 SQL 字符串。
+     */
     private List<String> renderRows(List<List<Expression>> rows,
                                     List<String> columnNames,
                                     TableMetadata tableMetadata,
@@ -147,6 +163,9 @@ public class InsertStatementProcessor implements StatementProcessor {
         return rendered;
     }
 
+    /**
+     * 根据列顺序获取列元数据，缺失或越界时返回 null 以回退到默认渲染逻辑。
+     */
     private ColumnMetadata resolveColumnMetadata(List<String> columnNames, TableMetadata tableMetadata, int index) {
         if (tableMetadata == null || columnNames.isEmpty() || index >= columnNames.size()) {
             return null;
@@ -154,6 +173,9 @@ public class InsertStatementProcessor implements StatementProcessor {
         return tableMetadata.getColumn(columnNames.get(index)).orElse(null);
     }
 
+    /**
+     * 针对不同表达式类型输出对应的可执行字面量：NULL、数字、字符串、RowConstructor 等都会去除 _binary 前缀并套用 convert_to。
+     */
     private String renderExpression(Expression expression, ColumnMetadata columnMetadata,
                                     DatabaseDialect dialect, boolean normalizeBoolean) {
         boolean binaryColumn = columnMetadata != null && columnMetadata.isBinaryLike();
@@ -185,6 +207,9 @@ public class InsertStatementProcessor implements StatementProcessor {
         return wrapBinaryLiteral(raw, binaryColumn);
     }
 
+    /**
+     * 尝试将表达式解析成布尔值，支持数字与字符串表示法；无法识别时返回 null。
+     */
     private Boolean extractBooleanValue(Expression expression) {
         if (expression instanceof LongValue) {
             return ((LongValue) expression).getValue() != 0;
@@ -204,11 +229,17 @@ public class InsertStatementProcessor implements StatementProcessor {
         }
         return null;
     }
+    /**
+     * 兼容旧逻辑需要时可调用该方法对字符串做 SQL 转义，目前保留以便扩展 SET/SELECT 形式。
+     */
     private String quoteString(String value) {
         String escaped = value.replace("'", "''");
         return "'" + escaped + "'";
     }
 
+    /**
+     * 针对 bytea 目标列，将文本/数字包装为 convert_to(literal, 'UTF8')，确保 PostgreSQL 以字节写入。
+     */
     private String wrapBinaryLiteral(String literal, boolean binaryColumn) {
         if (!binaryColumn || literal == null) {
             return literal;
